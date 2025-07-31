@@ -135,7 +135,10 @@ O Data Warehouse Observatório CAPES é um sistema analítico que organiza dados
 ├── 📊 QUICKSTART.py             # Guia rápido e status
 ├── 🔧 setup_environment.py      # Setup automático
 ├── 📄 requirements.txt          # Dependências Python
-└── 🗂️ persistence/             # Scripts migrados (legados)
+└── � persistence/             # Migração e compatibilidade
+    ├── migration_tool.py       # Ferramenta de migração ETL
+    ├── README.md              # Guia de migração
+    └── *_migrated.py          # Templates migrados
 ```
 
 ## 🎯 Scripts Principais ÚNICOS
