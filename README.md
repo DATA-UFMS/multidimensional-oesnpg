@@ -1,7 +1,14 @@
 # 🏛️ Data Warehouse Observatório CAPES
 
 > **Sistema de análise multidimensional da pós-graduação brasileira**  
-> *Star Schema com PostgreSQL + Python*
+> *Star Schema com Po├── 📊 QUICKSTART.py             # Guia rápido e status
+├── 🔧 setup_environment.py      # Setup automático
+├── 📄 requirements.txt          # Dependências Python
+└── 🔄 migration/               # Migração e compatibilidade
+    ├── migration_tool.py       # Ferramenta de migração ETL
+    ├── README.md              # Guia de migração
+    └── *_migrated.py          # Templates migrados
+``` + Python*
 
 ## 🚀 Início Rápido
 
@@ -135,7 +142,7 @@ O Data Warehouse Observatório CAPES é um sistema analítico que organiza dados
 ├── 📊 QUICKSTART.py             # Guia rápido e status
 ├── 🔧 setup_environment.py      # Setup automático
 ├── 📄 requirements.txt          # Dependências Python
-└── � persistence/             # Migração e compatibilidade
+└── � migration/             # Migração e compatibilidade
     ├── migration_tool.py       # Ferramenta de migração ETL
     ├── README.md              # Guia de migração
     └── *_migrated.py          # Templates migrados

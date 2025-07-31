@@ -31,7 +31,7 @@ def main():
     print("│       ├── core.py          Todas as funcionalidades")
     print("│       └── __init__.py      Exports e configuração")
     print("│")
-    print("├── persistence/             Migração e Compatibilidade")
+    print("├── migration/             Migração e Compatibilidade")
     print("│   ├── migration_tool.py    Ferramenta de migração")
     print("│   ├── README.md           Guia de migração")
     print("│   └── dim_*_migrated.py   Templates migrados")

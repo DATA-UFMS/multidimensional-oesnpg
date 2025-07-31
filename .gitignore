@@ -1,7 +1,8 @@
 .env
 dw_etl.log
 /seeds/*
-/persistence/*
+/migration/backup_migration/
+/migration/*
 .DS_Store
 etl/example_new_etl.py
 models/utils/__pycache__/core.cpython-39.pyc
