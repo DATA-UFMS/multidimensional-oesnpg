@@ -1,0 +1,93 @@
+erDiagram
+    fato_pos_graduacao {
+        int tempo_sk FK
+        int ppg_sk FK
+        int ies_sk FK
+        int localidade_sk FK
+        int tema_sk FK
+        int ods_sk FK
+        int emprego_formal_sk FK
+        int qtd_titulados_mestres
+        int qtd_titulados_doutores
+        int qtd_discentes
+        int qtd_docentes
+        int qtd_pos_docs
+        int num_egressos_vinculados_tema
+        int contribuicao_ies_uf
+        int capacidade_instalada_ppg_tema
+    }
+
+    dim_tempo {
+        int tempo_sk PK
+        date data_completa
+        int ano
+        int semestre
+        int trimestre
+        int mes
+        int dia
+        int dia_semana
+        varchar fim_de_semana
+    }
+
+    dim_ppg {
+        int ppg_sk PK
+        varchar codigo_programa
+        varchar nome_programa
+        varchar nivel
+        varchar modalidade
+        varchar ies_vinculada
+        varchar uf
+        varchar regiao
+        varchar status
+        varchar conceito_capes
+    }
+
+    dim_ies {
+        int ies_sk PK
+        varchar nome_ies
+        varchar sigla
+        varchar publica_privada
+        varchar categoria_administrativa
+        varchar uf
+        varchar municipio
+        varchar regiao
+        varchar codigo_emec
+    }
+
+    dim_localidade {
+        int localidade_sk PK
+        varchar uf
+        varchar nome_uf
+        varchar sigla_uf
+        varchar regiao
+        decimal latitude
+        decimal longitude
+    }
+
+    dim_tema {
+        int tema_sk PK
+        varchar nome_tema
+        varchar descricao_tema
+    }
+
+    dim_ods {
+        int ods_sk PK
+        varchar nome_ods
+        varchar descricao_ods
+    }
+
+    dim_emprego_formal {
+        int emprego_formal_sk PK
+        varchar tipo_ocupacao
+        varchar setor_atividade
+        varchar vinculo_tema
+    }
+
+    fato_pos_graduacao ||--|| dim_tempo : tempo_sk
+    fato_pos_graduacao ||--|| dim_ppg : ppg_sk
+    fato_pos_graduacao ||--|| dim_ies : ies_sk
+    fato_pos_graduacao ||--|| dim_localidade : localidade_sk
+    fato_pos_graduacao ||--o| dim_tema : tema_sk
+    fato_pos_graduacao ||--o| dim_ods : ods_sk
+    fato_pos_graduacao ||--o| dim_emprego_formal : emprego_formal_sk
+
