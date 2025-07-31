@@ -171,7 +171,7 @@ def executar_etl_completo():
         ("Python", "../models/dimensions/dim_docente.py", "População da dimensão docente"),
         
         # 3. Popular tabela fato
-        ("Python", "../models/facts/fact_table.py", "População da tabela fato"),
+        ("Python", "../models/facts/create_fact_table.py", "População da tabela fato"),
     ]
     
     # Executar scripts em sequência
