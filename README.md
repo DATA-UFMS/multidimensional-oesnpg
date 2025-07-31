@@ -13,7 +13,7 @@ cp .env.example .env
 
 # 3. Executar etl
 python etl/etl_master.py [completo|incremental]
-python etl/executar_fks.py
+python sql/utils/executar_fks.py
 
 # 4. Verificar
 python QUICKSTART.py
@@ -26,27 +26,6 @@ Sistema analítico em **Star Schema** para dados da pós-graduação brasileira:
 - **1 tabela fato** com 160+ registros (2021-2024)
 - **Métricas**: acadêmicas, produção, RH e financeiras
 
-## Estrutura
-
-```
-DW CAPES
-├── models/
-│   ├── dimensions/              # 8 dimensões
-│   ├── facts/create_fact_table.py  # Script principal
-│   └── utils/core.py            # Utilitários
-├── sql/ddl/                     # Scripts SQL
-│   ├── add_primary_keys_dimensoes.sql
-│   └── add_fks_simples_fato.sql
-├── executar_fks.py              # Executor constraints
-├── QUICKSTART.py                # Status sistema
-├── requirements.txt             # Dependências Python
-└── migration/                   # Migração e compatibilidade
-    ├── migration_tool.py        # Ferramenta de migração ETL
-    ├── README.md               # Guia de migração
-    └── *_migrated.py           # Templates migrados
-```
-└── requirements.txt             # Dependências
-```
 
 ## Como Usar
 
@@ -60,14 +39,6 @@ python models/facts/create_fact_table.py
 ```bash
 python QUICKSTART.py
 ```
-
-## Resultados
-
-- **160 registros** na tabela fato
-- **1.300+ cursos** de pós-graduação
-- **10.000+ titulados** (mestres + doutores)
-- **2.300+ artigos** publicados
-- **Crescimento**: 15% ao ano (2021-2024)
 
 ## Visão Geral do Sistema
 
@@ -90,7 +61,7 @@ DADOS DE ENTRADA          PROCESSAMENTO           SAÍDA ANALÍTICA
 └─ Instituições (PPGs)    ➜  └─ 160+ registros      ➜  └─ Análises ad-hoc
 ```
 
-## � Estrutura Atual (Pós-Reorganização)
+## � Estrutura Atual
 
 ```
 MULTIDIMENSIONAL-OESNPG/
@@ -110,11 +81,12 @@ MULTIDIMENSIONAL-OESNPG/
 │       ├── core.py              # Todas as funcionalidades
 │       └── __init__.py          # Exports e configuração
 ├── sql/                         # Scripts SQL organizados
-│   └── ddl/                     # DDL simples e diretos
-│       ├── add_primary_keys_dimensoes.sql  # PKs das dimensões
-│       └── add_fks_simples_fato.sql        # FKs da tabela fato
-├── 🔧 executar_fks.py           # Script Python para executar FKs
-├── 📊 QUICKSTART.py             # Guia rápido e status
+│   ├── ddl/                     # DDL simples e diretos
+│   │   ├── add_primary_keys_dimensoes.sql  # PKs das dimensões
+│   │   └── add_fks_simples_fato.sql        # FKs da tabela fato
+│   └── utils/                   # Utilitários SQL
+│       └── executar_fks.py      # Script Python para PKs + FKs
+├──  QUICKSTART.py             # Guia rápido e status
 ├── 🔧 setup_environment.py      # Setup automático
 ├── 📄 requirements.txt          # Dependências Python
 └── � migration/             # Migração e compatibilidade
@@ -134,44 +106,13 @@ python models/facts/create_fact_table.py
 - 160+ registros com crescimento ano a ano
 - Funciona com psycopg2 (sem problemas SQLAlchemy)
 
-### 2. Primary Keys
+### 2. Primary Keys e Foreign Keys
 ```bash
-psql -f sql/ddl/add_primary_keys_dimensoes.sql
+python sql/utils/executar_fks.py
 ```
-- 8 comandos ALTER TABLE diretos
-- PKs para todas as dimensões
-
-### 3. Foreign Keys
-```bash
-python executar_fks.py
-# OU
-psql -f sql/ddl/add_fks_simples_fato.sql
-```
-- 8 comandos ALTER TABLE diretos  
-- Integridade referencial completa
-
-## Resultados e Métricas
-
-### Dados Gerados pelo Sistema
-- **160 registros** na tabela fato principal
-- **1.300 cursos** de pós-graduação
-- **7.558 mestres** titulados
-- **2.617 doutores** titulados  
-- **2.330 artigos** publicados
-- **Nota média CAPES**: 4.99/7.0
-
-### Evolução Temporal (2021-2024)
-| Ano | Registros | Cursos | Titulados | Crescimento |
-|-----|-----------|--------|-----------|-------------|
-| 2021 | 40 | 264 | 2.021 | Base |
-| 2022 | 40 | 267 | 2.227 | +10% |
-| 2023 | 40 | 374 | 2.899 | +30% |
-| 2024 | 40 | 395 | 3.028 | +45% |
-
-### Cobertura Geográfica
-- **27 estados** brasileiros representados
-- **5 regiões** (Norte, Nordeste, Centro-Oeste, Sudeste, Sul)
-- **Distribuição equilibrada** por população regional
+- Executa PKs nas 8 dimensões automaticamente
+- Cria FKs na tabela fato com integridade referencial
+- Script único que resolve todas as constraints
 
 ## Exemplos de Uso
 
