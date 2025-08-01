@@ -65,7 +65,13 @@ def obter_dimensoes():
             df_ies = pd.read_sql("SELECT ies_sk, uf FROM dim_ies WHERE ies_sk > 0 LIMIT 100", conn)
         
         if 'dim_tema' in tabelas_disponiveis:
-            df_tema = pd.read_sql("SELECT tema_sk, nome_tema FROM dim_tema WHERE tema_sk > 0 LIMIT 50", conn)
+            # Carregar uma amostra representativa de temas de diferentes UFs
+            df_tema = pd.read_sql("""
+                SELECT DISTINCT tema_sk, nome_tema, nome_uf 
+                FROM dim_tema 
+                WHERE tema_sk > 0 
+                ORDER BY tema_sk
+            """, conn)
         
         if 'dim_ods' in tabelas_disponiveis:
             df_ods = pd.read_sql("SELECT ods_sk FROM dim_ods WHERE ods_sk > 0", conn)
@@ -111,67 +117,74 @@ def gerar_tabela_fato(dimensoes):
         if tempo_ano.empty:
             continue
         
-        # Gerar registros para algumas combinações
-        num_registros = min(100, len(df_localidade))  # Limitar a 100 registros por ano
-        
-        for i in range(num_registros):
-            localidade = df_localidade.iloc[i % len(df_localidade)]
+        # Para cada localidade, gerar registros com temas apropriados para essa UF
+        for _, localidade in df_localidade.iterrows():
+            uf_localidade = localidade['uf']
             
-            # Usar primeiro tempo do ano
-            tempo_sk = tempo_ano.iloc[0]['tempo_sk']
-            
-            # Chaves das outras dimensões
-            ies_sk = 1
-            if df_ies is not None and not df_ies.empty:
-                ies_sk = df_ies.iloc[i % len(df_ies)]['ies_sk']
-            
-            tema_sk = 1
+            # Buscar temas relacionados a essa UF
             if df_tema is not None and not df_tema.empty:
-                tema_sk = df_tema.iloc[i % len(df_tema)]['tema_sk']
-            
-            ods_sk = 1
-            if df_ods is not None and not df_ods.empty:
-                ods_sk = df_ods.iloc[i % len(df_ods)]['ods_sk']
-            
-            docente_sk = 1
-            if df_docente is not None and not df_docente.empty:
-                docente_sk = df_docente.iloc[i % len(df_docente)]['docente_sk']
-            
-            # Gerar métricas aleatórias
-            base_multiplicador = 1.0 + (ano - 2021) * 0.1
-            
-            registro = {
-                'tempo_sk': tempo_sk,
-                'ppg_sk': 1,  # Usar padrão
-                'ies_sk': ies_sk,
-                'localidade_sk': localidade['localidade_sk'],
-                'tema_sk': tema_sk,
-                'producao_sk': 1,  # Usar padrão
-                'ods_sk': ods_sk,
-                'docente_sk': docente_sk,
+                temas_uf = df_tema[df_tema['nome_uf'] == uf_localidade]
                 
-                # Métricas simplificadas
-                'num_cursos': int(random.uniform(1, 10) * base_multiplicador),
-                'num_trabalhos_conclusao': int(random.uniform(5, 30) * base_multiplicador),
-                'num_tc_mestrado': int(random.uniform(10, 50) * base_multiplicador),
-                'num_tc_doutorado': int(random.uniform(2, 20) * base_multiplicador),
-                'num_trabalhos_pesquisa': int(random.uniform(5, 25) * base_multiplicador),
-                'num_artigos_publicados': int(random.uniform(2, 15) * base_multiplicador),
-                'num_livros_publicados': int(random.uniform(0, 3) * base_multiplicador),
-                'num_capitulos_livro': int(random.uniform(0, 8) * base_multiplicador),
-                'num_producao_tecnica': int(random.uniform(0, 10) * base_multiplicador),
-                'num_orientacoes': int(random.uniform(1, 15) * base_multiplicador),
-                'num_docentes_total': int(random.uniform(5, 50) * base_multiplicador),
-                'num_doutores': int(random.uniform(2, 40) * base_multiplicador),
-                'num_regime_dedicacao': int(random.uniform(2, 30) * base_multiplicador),
-                'num_discentes_matriculados': int(random.uniform(20, 200) * base_multiplicador),
-                'num_bolsas_concedidas': int(random.uniform(5, 50) * base_multiplicador),
-                'investimento_pesquisa': round(random.uniform(10000, 300000) * base_multiplicador, 2),
-                'nota_avaliacao_capes': round(random.uniform(3.0, 6.0), 1),
-                'impacto_ods': round(random.uniform(0.1, 0.8), 2)
-            }
-            
-            dados_fato.append(registro)
+                # Se não houver temas específicos para essa UF, usar uma amostra geral
+                if temas_uf.empty:
+                    temas_uf = df_tema.sample(n=min(3, len(df_tema)), random_state=42)
+                
+                # Gerar registros para uma amostra dos temas dessa UF
+                num_temas_usar = min(5, len(temas_uf))  # Usar até 5 temas por UF
+                temas_amostra = temas_uf.sample(n=num_temas_usar, random_state=ano)
+                
+                for _, tema in temas_amostra.iterrows():
+                    # Usar primeiro tempo do ano
+                    tempo_sk = tempo_ano.iloc[0]['tempo_sk']
+                    
+                    # Chaves das outras dimensões
+                    ies_sk = 1
+                    if df_ies is not None and not df_ies.empty:
+                        ies_sk = df_ies.iloc[random.randint(0, len(df_ies)-1)]['ies_sk']
+                    
+                    ods_sk = 1
+                    if df_ods is not None and not df_ods.empty:
+                        ods_sk = df_ods.iloc[random.randint(0, len(df_ods)-1)]['ods_sk']
+                    
+                    docente_sk = 1
+                    if df_docente is not None and not df_docente.empty:
+                        docente_sk = df_docente.iloc[random.randint(0, len(df_docente)-1)]['docente_sk']
+                    
+                    # Gerar métricas aleatórias
+                    base_multiplicador = 1.0 + (ano - 2021) * 0.1
+                    
+                    registro = {
+                        'tempo_sk': tempo_sk,
+                        'ppg_sk': 1,  # Usar padrão
+                        'ies_sk': ies_sk,
+                        'localidade_sk': localidade['localidade_sk'],
+                        'tema_sk': tema['tema_sk'],
+                        'producao_sk': 1,  # Usar padrão
+                        'ods_sk': ods_sk,
+                        'docente_sk': docente_sk,
+                        
+                        # Métricas simplificadas
+                        'num_cursos': int(random.uniform(1, 10) * base_multiplicador),
+                        'num_trabalhos_conclusao': int(random.uniform(5, 30) * base_multiplicador),
+                        'num_tc_mestrado': int(random.uniform(10, 50) * base_multiplicador),
+                        'num_tc_doutorado': int(random.uniform(2, 20) * base_multiplicador),
+                        'num_trabalhos_pesquisa': int(random.uniform(5, 25) * base_multiplicador),
+                        'num_artigos_publicados': int(random.uniform(2, 15) * base_multiplicador),
+                        'num_livros_publicados': int(random.uniform(0, 3) * base_multiplicador),
+                        'num_capitulos_livro': int(random.uniform(0, 8) * base_multiplicador),
+                        'num_producao_tecnica': int(random.uniform(0, 10) * base_multiplicador),
+                        'num_orientacoes': int(random.uniform(1, 15) * base_multiplicador),
+                        'num_docentes_total': int(random.uniform(5, 50) * base_multiplicador),
+                        'num_doutores': int(random.uniform(2, 40) * base_multiplicador),
+                        'num_regime_dedicacao': int(random.uniform(2, 30) * base_multiplicador),
+                        'num_discentes_matriculados': int(random.uniform(20, 200) * base_multiplicador),
+                        'num_bolsas_concedidas': int(random.uniform(5, 50) * base_multiplicador),
+                        'investimento_pesquisa': round(random.uniform(10000, 300000) * base_multiplicador, 2),
+                        'nota_avaliacao_capes': round(random.uniform(3.0, 6.0), 1),
+                        'impacto_ods': round(random.uniform(0.1, 0.8), 2)
+                    }
+                    
+                    dados_fato.append(registro)
     
     df_fato = pd.DataFrame(dados_fato)
     print(f"✅ Tabela fato gerada com {len(df_fato)} registros")

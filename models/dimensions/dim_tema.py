@@ -28,8 +28,10 @@ def carregar_temas():
     
     # Adicionar registro 0 (desconhecido/não aplicável)
     registro_desconhecido = pd.DataFrame({
+        'id': [0],
         'nome_tema': ['Desconhecido'],
-        'nome_uf': ['Desconhecido']
+        'nome_uf': ['Desconhecido'],
+        'palavra_chave': ['Desconhecido']
     })
     
     # Concatenar registro desconhecido com dados reais
@@ -50,10 +52,22 @@ def salvar_dimensao_tema(df_tema):
         url = f'postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
         engine = create_engine(url)
         
-        # Salvar no banco
+        # Salvar no banco - usando DROP CASCADE para remover dependências
         with engine.begin() as conn:
+            from sqlalchemy import text
+            
+            # Verificar se a tabela existe
+            result = conn.execute(text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'dim_tema')"))
+            table_exists = result.fetchone()[0]
+            
+            if table_exists:
+                # Se existe, fazer DROP CASCADE para remover dependências
+                conn.execute(text("DROP TABLE IF EXISTS dim_tema CASCADE"))
+                print("⚠️ Tabela dim_tema removida com CASCADE (dependências também foram removidas)")
+            
+            # Criar nova tabela
             df_tema.to_sql('dim_tema', conn, if_exists='replace', index=False)
-            print(f"✅ Dimensão tema salva no PostgreSQL com {len(df_tema)} registros")
+            print(f"✅ Dimensão tema criada no PostgreSQL com {len(df_tema)} registros")
             
     except Exception as e:
         print(f"❌ Erro ao salvar dimensão tema: {e}")

@@ -6,3 +6,4 @@ dw_etl.log
 .DS_Store
 etl/example_new_etl.py
 models/utils/__pycache__/core.cpython-39.pyc
+models/dimensions/__pycache__/dim_tema.cpython-39.pyc

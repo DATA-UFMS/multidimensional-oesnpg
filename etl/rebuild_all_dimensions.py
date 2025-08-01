@@ -38,6 +38,11 @@ def main():
     print("🏗️ RECRIANDO TODAS AS DIMENSÕES DO DATA WAREHOUSE")
     print(f"📅 Iniciado em: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
+    # Obter diretório atual e definir caminho para as dimensões
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    dimensions_dir = os.path.join(project_root, 'models', 'dimensions')
+    
     # Lista de scripts na ordem de execução (independentes primeiro)
     scripts = [
         "dim_tempo.py",       # Independente
@@ -53,10 +58,11 @@ def main():
     resultados = {}
     
     for script in scripts:
-        if os.path.exists(script):
-            resultados[script] = run_script(script)
+        script_path = os.path.join(dimensions_dir, script)
+        if os.path.exists(script_path):
+            resultados[script] = run_script(script_path)
         else:
-            print(f"⚠️ Arquivo {script} não encontrado!")
+            print(f"⚠️ Arquivo {script} não encontrado em {dimensions_dir}!")
             resultados[script] = False
     
     # Resumo final
