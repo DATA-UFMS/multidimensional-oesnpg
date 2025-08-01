@@ -62,7 +62,7 @@ def obter_dimensoes():
         df_docente = None
         
         if 'dim_ies' in tabelas_disponiveis:
-            df_ies = pd.read_sql("SELECT ies_sk, uf FROM dim_ies WHERE ies_sk > 0 LIMIT 100", conn)
+            df_ies = pd.read_sql("SELECT ies_sk, sigla_uf FROM dim_ies WHERE ies_sk > 0 LIMIT 100", conn)
         
         if 'dim_tema' in tabelas_disponiveis:
             # Carregar uma amostra representativa de temas de diferentes UFs
@@ -121,19 +121,30 @@ def gerar_tabela_fato(dimensoes):
         for _, localidade in df_localidade.iterrows():
             uf_localidade = localidade['uf']
             
-            # Buscar temas relacionados a essa UF
+            # Mapeamento de siglas UF para nomes completos (para match com dim_tema)
+            mapa_uf = {
+                'AC': 'ACRE', 'AL': 'ALAGOAS', 'AP': 'AMAPÁ', 'AM': 'AMAZONAS',
+                'BA': 'BAHIA', 'CE': 'CEARÁ', 'DF': 'DISTRITO FEDERAL', 'ES': 'ESPÍRITO SANTO',
+                'GO': 'GOIÁS', 'MA': 'MARANHÃO', 'MT': 'MATO GROSSO', 'MS': 'MATO GROSSO DO SUL',
+                'MG': 'MINAS GERAIS', 'PA': 'PARÁ', 'PB': 'PARAÍBA', 'PR': 'PARANÁ',
+                'PE': 'PERNAMBUCO', 'PI': 'PIAUÍ', 'RJ': 'RIO DE JANEIRO', 'RN': 'RIO GRANDE DO NORTE',
+                'RS': 'RIO GRANDE DO SUL', 'RO': 'RONDÔNIA', 'RR': 'RORAIMA', 'SC': 'SANTA CATARINA',
+                'SP': 'SÃO PAULO', 'SE': 'SERGIPE', 'TO': 'TOCANTINS'
+            }
+            
+            uf_nome_completo = mapa_uf.get(uf_localidade, uf_localidade)
+            
+            # Buscar todos os temas relacionados a essa UF
             if df_tema is not None and not df_tema.empty:
-                temas_uf = df_tema[df_tema['nome_uf'] == uf_localidade]
+                temas_uf = df_tema[df_tema['nome_uf'] == uf_nome_completo]
                 
                 # Se não houver temas específicos para essa UF, usar uma amostra geral
                 if temas_uf.empty:
-                    temas_uf = df_tema.sample(n=min(3, len(df_tema)), random_state=42)
+                    print(f"⚠️ Nenhum tema encontrado para {uf_nome_completo}, usando amostra geral")
+                    temas_uf = df_tema.sample(n=min(10, len(df_tema)), random_state=42)
                 
-                # Gerar registros para uma amostra dos temas dessa UF
-                num_temas_usar = min(5, len(temas_uf))  # Usar até 5 temas por UF
-                temas_amostra = temas_uf.sample(n=num_temas_usar, random_state=ano)
-                
-                for _, tema in temas_amostra.iterrows():
+                # Usar TODOS os temas dessa UF para gerar registros na fato
+                for _, tema in temas_uf.iterrows():
                     # Usar primeiro tempo do ano
                     tempo_sk = tempo_ano.iloc[0]['tempo_sk']
                     

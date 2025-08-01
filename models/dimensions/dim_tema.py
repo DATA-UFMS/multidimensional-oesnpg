@@ -26,21 +26,43 @@ def carregar_temas():
     print(f"📥 Carregando temas do arquivo: {df.columns.tolist()}")
     df = df.drop_duplicates()
     
+    # Criar uma tabela de temas únicos para gerar IDs
+    temas_unicos = df[['nome_tema', 'nome_uf']].drop_duplicates().reset_index(drop=True)
+    
+    # Criar ID único para cada combinação tema + UF
+    temas_unicos['tema_id'] = range(1, len(temas_unicos) + 1)
+    
+    print(f"📊 Mapeamento de temas:")
+    print(f"   Registros originais: {len(df)}")
+    print(f"   Temas únicos: {len(temas_unicos)}")
+    
+    # Fazer merge para trazer o tema_id de volta ao dataframe original
+    df = df.merge(temas_unicos, on=['nome_tema', 'nome_uf'], how='left')
+    
     # Adicionar registro 0 (desconhecido/não aplicável)
     registro_desconhecido = pd.DataFrame({
-        'id': [0],
+        'tema_id': [0],
         'nome_tema': ['Desconhecido'],
         'nome_uf': ['Desconhecido'],
+        'id': [0],
         'palavra_chave': ['Desconhecido']
     })
     
     # Concatenar registro desconhecido com dados reais
-    df = pd.concat([registro_desconhecido, df], ignore_index=True)
+    df_final = pd.concat([registro_desconhecido, df], ignore_index=True)
     
     # Adicionar surrogate key (começando do 0)
-    df.insert(0, 'tema_sk', range(0, len(df)))
+    df_final.insert(0, 'tema_sk', range(0, len(df_final)))
     
-    return df
+    # Reordenar colunas para melhor legibilidade
+    df_final = df_final[['tema_sk', 'tema_id', 'id', 'nome_tema', 'nome_uf', 'palavra_chave']]
+    
+    print(f"📊 Resultado final:")
+    print(f"   Total de registros: {len(df_final)}")
+    print(f"   Tema IDs únicos: {df_final['tema_id'].nunique()}")
+    print(f"   Temas únicos: {df_final['nome_tema'].nunique()}")
+    
+    return df_final
 
 
 def salvar_dimensao_tema(df_tema):

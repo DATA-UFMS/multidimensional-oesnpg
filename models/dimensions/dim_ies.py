@@ -34,7 +34,7 @@ def extrair_dados_ies():
                 'nome_ies': ['Universidade Federal do Rio Grande do Sul', 'Universidade de São Paulo', 'Universidade Federal de Minas Gerais'],
                 'sigla': ['UFRGS', 'USP', 'UFMG'],
                 'categoria_administrativa': ['Federal', 'Estadual', 'Federal'],
-                'uf': ['RS', 'SP', 'MG'],
+                'sigla_uf': ['RS', 'SP', 'MG'],
                 'municipio': ['Porto Alegre', 'São Paulo', 'Belo Horizonte'],
                 'regiao': ['Sul', 'Sudeste', 'Sudeste'],
                 'codigo_emec': ['1', '2', '3']
@@ -49,7 +49,7 @@ def extrair_dados_ies():
             'nm_entidade_ensino': 'nome_ies',
             'sg_entidade_ensino': 'sigla',
             'ds_dependencia_administrativa': 'categoria_administrativa',
-            'sg_uf_programa': 'uf',
+            'sg_uf_programa': 'sigla_uf',
             'nm_municipio_programa_ies': 'municipio',
             'nm_regiao': 'regiao',
             'cd_entidade_emec': 'codigo_emec'
@@ -82,7 +82,7 @@ def extrair_dados_ies():
             'nome_ies': ['Desconhecido'],
             'sigla': ['XX'],
             'categoria_administrativa': ['Desconhecido'],
-            'uf': ['XX'],
+            'sigla_uf': ['XX'],
             'municipio': ['Desconhecido'],
             'regiao': ['Desconhecido'],
             'codigo_emec': [0],
