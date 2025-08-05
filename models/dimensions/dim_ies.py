@@ -29,17 +29,7 @@ def extrair_dados_ies():
         
         if df_raw.empty:
             print("⚠️ Nenhum dado retornado da API. Criando dados de exemplo...")
-            # Criar alguns dados de exemplo
-            exemplo_data = {
-                'nome_ies': ['Universidade Federal do Rio Grande do Sul', 'Universidade de São Paulo', 'Universidade Federal de Minas Gerais'],
-                'sigla': ['UFRGS', 'USP', 'UFMG'],
-                'categoria_administrativa': ['Federal', 'Estadual', 'Federal'],
-                'sigla_uf': ['RS', 'SP', 'MG'],
-                'municipio': ['Porto Alegre', 'São Paulo', 'Belo Horizonte'],
-                'regiao': ['Sul', 'Sudeste', 'Sudeste'],
-                'codigo_emec': ['1', '2', '3']
-            }
-            return pd.DataFrame(exemplo_data)
+            return pd.DataFrame()  # Retorna DataFrame vazio se não houver dados
         
         # Normalizar nomes das colunas
         df_raw.columns = df_raw.columns.str.lower()
@@ -65,13 +55,12 @@ def extrair_dados_ies():
         df_ies = df_raw[list(colunas_existentes.keys())].copy()
         df_ies = df_ies.rename(columns=colunas_existentes)
         
-        # Criar coluna publica_privada baseada na categoria administrativa
-        if 'categoria_administrativa' in df_ies.columns:
-            df_ies['publica_privada'] = df_ies['categoria_administrativa'].apply(
-                lambda x: 'Pública' if 'Federal' in str(x) or 'Estadual' in str(x) or 'Municipal' in str(x) else 'Privada'
-            )
-        else:
-            df_ies['publica_privada'] = 'Não informado'
+        # Normalizar colunas específicas para uppercase
+        if 'sigla_uf' in df_ies.columns:
+            df_ies['sigla_uf'] = df_ies['sigla_uf'].astype(str).str.upper().str.strip()
+        if 'regiao' in df_ies.columns:
+            df_ies['regiao'] = df_ies['regiao'].astype(str).str.upper().str.strip()
+        
         
         # Remover duplicatas baseado no nome da IES
         if 'nome_ies' in df_ies.columns:
@@ -79,14 +68,13 @@ def extrair_dados_ies():
         
         # Adicionar registro 0 (desconhecido/não aplicável)
         registro_desconhecido = pd.DataFrame({
-            'nome_ies': ['Desconhecido'],
+            'nome_ies': ['DESCONHECIDO'],
             'sigla': ['XX'],
-            'categoria_administrativa': ['Desconhecido'],
+            'categoria_administrativa': ['DESCONHECIDO'],
             'sigla_uf': ['XX'],
-            'municipio': ['Desconhecido'],
-            'regiao': ['Desconhecido'],
-            'codigo_emec': [0],
-            'publica_privada': ['Desconhecido']
+            'municipio': ['DESCONHECIDO'],
+            'regiao': ['DESCONHECIDO'],
+            'codigo_emec': [0]
         })
         
         # Concatenar registro desconhecido com dados reais
@@ -130,9 +118,9 @@ if __name__ == "__main__":
         for regiao in df_ies['regiao'].unique():
             count = len(df_ies[df_ies['regiao'] == regiao])
             print(f"  {regiao}: {count} IES")
-    if 'publica_privada' in df_ies.columns:
-        print(f"IES por tipo:")
-        for tipo in df_ies['publica_privada'].unique():
-            count = len(df_ies[df_ies['publica_privada'] == tipo])
-            print(f"  {tipo}: {count} IES")
+    if 'categoria_administrativa' in df_ies.columns:
+        print(f"IES por categoria administrativa:")
+        for categoria in df_ies['categoria_administrativa'].unique():
+            count = len(df_ies[df_ies['categoria_administrativa'] == categoria])
+            print(f"  {categoria}: {count} IES")
 
