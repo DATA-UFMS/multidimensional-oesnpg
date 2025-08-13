@@ -1,5 +1,5 @@
 -- =====================================================
--- Script SIMPLES para adicionar chaves primárias 
+-- Script para adicionar chaves primárias 
 -- em todas as dimensões
 -- =====================================================
 

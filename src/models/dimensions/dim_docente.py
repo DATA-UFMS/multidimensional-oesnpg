@@ -1,8 +1,15 @@
 import pandas as pd
 from sqlalchemy import create_engine
 import os
+import sys
 from dotenv import load_dotenv
-from models.utils import salvar_df_bd
+
+# Adicionar diretório raiz ao path para imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.core.core import salvar_df_bd
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -23,7 +30,7 @@ def extrair_dados_docente_csv():
     try:
         # Caminho completo do arquivo CSV usando caminho absoluto
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(os.path.dirname(current_dir))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
         csv_file = os.path.join(project_root, CSV_PATH, "br-capes-colsucup-docente-2021-2025-03-31.csv")
         
         if not os.path.exists(csv_file):

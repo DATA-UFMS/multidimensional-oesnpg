@@ -1,6 +1,7 @@
+psycopg2-binary
+SQLAlchemy
 pandas
 numpy
-sqlalchemy
-psycopg2-binary
+openpyxl
 requests
 python-dotenv

@@ -1,7 +1,7 @@
 """
 Core Utils - Funcionalidades essenciais consolidadas para o Data Warehouse
 Observatório CAPES - Pós-graduação brasileira
-Versão Simplificada - 30/07/2025
+Versão - 30/07/2025
 """
 
 import os

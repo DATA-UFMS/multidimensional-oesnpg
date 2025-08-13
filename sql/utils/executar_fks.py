@@ -2,6 +2,7 @@
 """
 Script para executar o SQL de criação de chaves primárias e estrangeiras
 Executa primeiro as PKs nas dimensões e depois as FKs na tabela fato
+Versão corrigida para lidar com transações abortadas
 """
 
 import psycopg2
@@ -12,7 +13,10 @@ import os
 load_dotenv()
 
 def executar_sql_fks():
-    """Executa o script SQL de criação de PKs e FKs"""
+    """Executa o script SQL de criação de PKs e FKs com tratamento robusto de erros"""
+    conn = None
+    cursor = None
+    
     try:
         # Conectar ao banco
         conn = psycopg2.connect(
@@ -23,30 +27,122 @@ def executar_sql_fks():
             port=os.getenv('DB_PORT')
         )
         
+        conn.autocommit = True  # Cada comando será commitado automaticamente
         cursor = conn.cursor()
 
         # Primeiro: Executar o script SQL de criação de PKs nas dimensões
         print("🔑 Executando script de criação de chaves primárias...")
-        try:
-            with open('sql/ddl/add_primary_keys_dimensoes.sql', 'r', encoding='utf-8') as file:
-                pk_sql_content = file.read()
-            
-            cursor.execute(pk_sql_content)
-            conn.commit()
-            print("✅ Chaves primárias criadas com sucesso!")
-            
-        except Exception as e:
-            print(f"⚠️  Aviso ao criar PKs (podem já existir): {e}")
-
-        # Segundo: Ler o arquivo SQL de FKs
-        with open('sql/ddl/add_fks_simples_fato.sql', 'r', encoding='utf-8') as file:
-            sql_content = file.read()
+        
+        # Lista das PKs para criar individualmente
+        pk_commands = [
+            ("dim_tempo", "tempo_sk"),
+            ("dim_localidade", "localidade_sk"), 
+            ("dim_ppg", "ppg_sk"),
+            ("dim_ies", "ies_sk"),
+            ("dim_tema", "tema_sk"),
+            ("dim_producao", "producao_sk"),
+            ("dim_ods", "ods_sk"),
+            ("dim_docente", "docente_sk")
+        ]
+        
+        for table_name, pk_column in pk_commands:
+            try:
+                # Verificar se a tabela existe
+                cursor.execute(f"""
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_name = '{table_name}' AND table_schema = 'public'
+                """)
+                
+                if cursor.fetchone():
+                    # Verificar se a PK já existe
+                    cursor.execute(f"""
+                        SELECT constraint_name 
+                        FROM information_schema.table_constraints 
+                        WHERE table_name = '{table_name}' 
+                        AND constraint_type = 'PRIMARY KEY'
+                        AND table_schema = 'public'
+                    """)
+                    
+                    existing_pk = cursor.fetchone()
+                    
+                    if existing_pk:
+                        print(f"  ℹ️ PK já existe em {table_name}: {existing_pk[0]}")
+                    else:
+                        # Criar PK
+                        pk_sql = f"""
+                        ALTER TABLE {table_name} 
+                        ADD CONSTRAINT pk_{table_name} 
+                        PRIMARY KEY ({pk_column})
+                        """
+                        cursor.execute(pk_sql)
+                        print(f"  ✅ PK criada em {table_name}")
+                else:
+                    print(f"  ⚠️ Tabela {table_name} não existe")
+                    
+            except Exception as e:
+                print(f"  ❌ Erro ao criar PK em {table_name}: {e}")
+        
+        # Segundo: Verificar se fato_pos_graduacao existe
+        cursor.execute("""
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_name = 'fato_pos_graduacao' AND table_schema = 'public'
+        """)
+        
+        if not cursor.fetchone():
+            print("❌ Tabela fato_pos_graduacao não existe! Execute primeiro o script de criação da FATO.")
+            return
         
         print("🚀 Executando script de criação de chaves estrangeiras...")
         
-        # Executar o script
-        cursor.execute(sql_content)
-        conn.commit()
+        # Lista das FKs para criar individualmente (apenas as que fazem sentido para nossa FATO)
+        fk_commands = [
+            ("tempo_sk", "dim_tempo", "tempo_sk"),
+            ("localidade_sk", "dim_localidade", "localidade_sk"),
+            ("ies_sk", "dim_ies", "ies_sk"),
+            ("tema_sk", "dim_tema", "tema_sk")
+        ]
+        
+        for fk_column, ref_table, ref_column in fk_commands:
+            try:
+                # Verificar se a coluna existe na tabela fato
+                cursor.execute(f"""
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'fato_pos_graduacao' 
+                    AND column_name = '{fk_column}'
+                    AND table_schema = 'public'
+                """)
+                
+                if cursor.fetchone():
+                    # Verificar se a FK já existe
+                    cursor.execute(f"""
+                        SELECT constraint_name 
+                        FROM information_schema.table_constraints 
+                        WHERE table_name = 'fato_pos_graduacao' 
+                        AND constraint_type = 'FOREIGN KEY'
+                        AND constraint_name = 'fk_fato_{ref_table.replace("dim_", "")}'
+                        AND table_schema = 'public'
+                    """)
+                    
+                    existing_fk = cursor.fetchone()
+                    
+                    if existing_fk:
+                        print(f"  ℹ️ FK já existe: {existing_fk[0]}")
+                    else:
+                        # Criar FK
+                        fk_name = f"fk_fato_{ref_table.replace('dim_', '')}"
+                        fk_sql = f"""
+                        ALTER TABLE fato_pos_graduacao 
+                        ADD CONSTRAINT {fk_name}
+                        FOREIGN KEY ({fk_column}) REFERENCES {ref_table}({ref_column})
+                        """
+                        cursor.execute(fk_sql)
+                        print(f"  ✅ FK criada: {fk_name}")
+                else:
+                    print(f"  ⚠️ Coluna {fk_column} não existe na tabela fato_pos_graduacao")
+                    
+            except Exception as e:
+                print(f"  ❌ Erro ao criar FK {fk_column}: {e}")
+        
         
         print("✅ Script executado com sucesso!")
         
@@ -97,11 +193,15 @@ def executar_sql_fks():
             table_name, constraint_name, pk_columns = pk
             print(f"  ✅ {table_name}: {pk_columns}")
         
-        cursor.close()
-        conn.close()
-        
     except Exception as e:
-        print(f"❌ Erro ao executar script: {e}")
+        print(f"❌ Erro geral no script: {e}")
+        
+    finally:
+        # Fechar conexões de forma segura
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
     executar_sql_fks()

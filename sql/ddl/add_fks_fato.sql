@@ -1,5 +1,5 @@
 -- =====================================================
--- Script SIMPLES para adicionar FKs na tabela fato
+-- Script para adicionar FKs na tabela fato
 -- Somente comandos ALTER TABLE
 -- =====================================================
 

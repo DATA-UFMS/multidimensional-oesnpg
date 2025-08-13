@@ -10,9 +10,9 @@ import numpy as np
 from datetime import datetime
 
 # Adicionar path para imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
-from models.utils.core import get_db_manager, get_capes_api, Config, log_execution
+from src.core.core import get_db_manager, get_capes_api, Config, log_execution
 import logging
 
 logger = logging.getLogger(__name__)

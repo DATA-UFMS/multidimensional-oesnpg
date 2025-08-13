@@ -176,16 +176,23 @@ def executar_etl_completo():
     
     # Executar scripts em sequência
     sucesso_total = True
+    scripts_executados = []
+    scripts_com_erro = []
+    scripts_nao_executados = []
     
-    for tipo, script, descricao in scripts_etl:
+    for i, (tipo, script, descricao) in enumerate(scripts_etl):
         log_message(f"--- {descricao} ---")
         
         script_path = os.path.join(os.path.dirname(__file__), script)
         
         if not os.path.exists(script_path):
             log_message(f"Script não encontrado: {script_path}", "ERROR")
+            scripts_com_erro.append((descricao, f"Arquivo não encontrado: {script_path}"))
             sucesso_total = False
-            continue
+            # Adicionar scripts restantes à lista de não executados
+            for j in range(i+1, len(scripts_etl)):
+                scripts_nao_executados.append(scripts_etl[j][2])
+            break
         
         if tipo == "SQL":
             sucesso = executar_sql_script(script_path)
@@ -195,16 +202,50 @@ def executar_etl_completo():
             log_message(f"Tipo de script desconhecido: {tipo}", "ERROR")
             sucesso = False
         
-        if not sucesso:
-            log_message(f"Falha na execução de: {script}", "ERROR")
+        if sucesso:
+            scripts_executados.append(descricao)
+        else:
+            scripts_com_erro.append((descricao, f"Falha na execução de: {script}"))
             sucesso_total = False
-            # Continuar com os próximos scripts mesmo em caso de erro
+            log_message(f"❌ ERRO CRÍTICO: Falha na execução de: {script}", "ERROR")
+            log_message(f"🚨 ABORTANDO PROCESSO ETL", "ERROR")
+            # Adicionar scripts restantes à lista de não executados
+            for j in range(i+1, len(scripts_etl)):
+                scripts_nao_executados.append(scripts_etl[j][2])
+            break
     
-    # Resultado final
+    # Resultado final com relatório detalhado
+    print("\n" + "="*80)
     if sucesso_total:
-        log_message("=== ETL COMPLETO EXECUTADO COM SUCESSO ===")
+        log_message("=== ✅ ETL COMPLETO EXECUTADO COM SUCESSO ===")
+        print(f"🎉 Todos os {len(scripts_executados)} scripts foram executados com sucesso!")
+        print("\n📋 Scripts executados:")
+        for i, script in enumerate(scripts_executados, 1):
+            print(f"   {i:2d}. ✅ {script}")
     else:
-        log_message("=== ETL COMPLETO FINALIZADO COM ERROS ===", "ERROR")
+        log_message("=== ❌ ETL COMPLETO FINALIZADO COM ERROS ===", "ERROR")
+        print("\n📊 RELATÓRIO DE EXECUÇÃO:")
+        
+        if scripts_executados:
+            print(f"\n✅ Scripts executados com SUCESSO ({len(scripts_executados)}):")
+            for i, script in enumerate(scripts_executados, 1):
+                print(f"   {i:2d}. ✅ {script}")
+        
+        if scripts_com_erro:
+            print(f"\n❌ Scripts com ERRO ({len(scripts_com_erro)}):")
+            for i, (script, erro) in enumerate(scripts_com_erro, 1):
+                print(f"   {i:2d}. ❌ {script}")
+                print(f"       🔍 {erro}")
+        
+        if scripts_nao_executados:
+            print(f"\n⏸️  Scripts NÃO EXECUTADOS devido ao erro ({len(scripts_nao_executados)}):")
+            for i, script in enumerate(scripts_nao_executados, 1):
+                print(f"   {i:2d}. ⏸️  {script}")
+        
+        print(f"\n🚨 PROCESSO ABORTADO APÓS PRIMEIRO ERRO")
+        print(f"💡 Corrija os erros acima e execute novamente")
+    
+    print("="*80)
     
     return sucesso_total
 

@@ -4,8 +4,15 @@
 import pandas as pd
 from sqlalchemy import create_engine
 import os
+import sys
 from dotenv import load_dotenv
-from models.utils import salvar_df_bd
+
+# Adicionar diretório raiz ao path para imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.core.core import salvar_df_bd
 
 # Carregar variáveis de ambiente
 load_dotenv()
