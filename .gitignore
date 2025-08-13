@@ -6,4 +6,8 @@
 .DS_Store
 etl/example_new_etl.py
 sql/dml/consulta_temas_por_uf_raw.sql
-*/__pycache__/*
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
