@@ -154,7 +154,7 @@ def popular_fato():
         1 as presente_na_regiao,
         1 as qtd_registros
     FROM raw_tema rt
-        JOIN dim_tema dt ON rt.tema_id = dt.tema_id
+        JOIN dim_tema dt ON rt.id = dt.tema_id  -- Corrigido: usar rt.id = dt.tema_id
         JOIN dim_localidade dl ON rt.uf = dl.nome_uf  -- raw_tema tem nome completo
         JOIN dim_ies di ON dl.sigla_uf = di.sigla_uf  -- dim_ies tem sigla
     WHERE rt.uf = dl.nome_uf AND dl.sigla_uf = di.sigla_uf;

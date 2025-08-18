@@ -11,5 +11,3 @@ __pycache__/
 
 # Generated output files
 migrations/output/
-migrations/postgresql/
-migrations/oracle/
