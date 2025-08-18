@@ -1,8 +1,3 @@
--- =====================================================
--- Consulta 2: Quantidade de temas por UF - Data Warehouse
--- =====================================================
--- Esta consulta conta temas únicos por UF usando as tabelas do DW
--- (tabela fato + dimensões) que devem retornar o mesmo resultado
 
 SELECT
     dl.nome_uf,
@@ -15,5 +10,15 @@ WHERE f.tema_sk > 0  -- Excluir registros com tema "Desconhecido"
 GROUP BY dl.nome_uf
 ORDER BY dl.nome_uf;
 
--- Resultado esperado: Mesmo resultado da consulta anterior
--- 27 UFs com a mesma distribuição de temas da tabela raw_tema
+SELECT
+  dt.macrotema,
+  COUNT(DISTINCT dt.tema) AS qtd_temas,
+  COUNT(DISTINCT dt.palavrachave) AS qtd_palavra_chave
+FROM
+  fato_pos_graduacao f
+JOIN
+  dim_tema dt ON f.tema_sk = dt.tema_sk
+GROUP BY
+  dt.macrotema
+ORDER BY
+  qtd_palavra_chave DESC;

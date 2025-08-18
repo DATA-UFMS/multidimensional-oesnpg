@@ -127,7 +127,7 @@ ORDER BY qtd_temas_ies DESC;
 - `src/models/dimensions/dim_ies.py` (da API CAPES)
 - `src/models/dimensions/dim_localidade.py`
 - `src/models/dimensions/dim_tempo.py`
-- `seeds/relational/raw_tema.py` (dados brutos)
+- `staging/relational/raw_tema.py` (dados brutos)
 
 ### Fontes de Dados
 - **DIM_IES**: 100% API CAPES oficial
