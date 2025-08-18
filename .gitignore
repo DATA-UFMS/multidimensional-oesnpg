@@ -8,4 +8,8 @@ sql/dml/consulta_temas_por_uf_raw.sql
 __pycache__/
 *.py[cod]
 *$py.class
-migrations/*
+
+# Generated output files
+migrations/output/
+migrations/postgresql/
+migrations/oracle/
