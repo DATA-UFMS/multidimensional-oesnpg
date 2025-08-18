@@ -139,6 +139,83 @@ def criar_banco_dados():
         log_message(f"Erro ao criar banco de dados: {e}", "ERROR")
         return False
 
+def verificar_integridade_schema():
+    """
+    Verifica se as PKs e FKs foram criadas corretamente.
+    """
+    try:
+        log_message("Verificando integridade do schema...")
+        
+        url = f'postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+        engine = create_engine(url)
+        
+        with engine.connect() as conn:
+            # Verificar Primary Keys
+            pk_query = text("""
+                SELECT 
+                    tc.table_name,
+                    tc.constraint_name,
+                    kcu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu 
+                    ON tc.constraint_name = kcu.constraint_name
+                WHERE tc.constraint_type = 'PRIMARY KEY'
+                  AND tc.table_name LIKE 'dim_%'
+                ORDER BY tc.table_name
+            """)
+            
+            pk_result = conn.execute(pk_query)
+            pks = pk_result.fetchall()
+            
+            # Verificar Foreign Keys
+            fk_query = text("""
+                SELECT 
+                    tc.constraint_name,
+                    kcu.column_name,
+                    ccu.table_name AS foreign_table_name,
+                    ccu.column_name AS foreign_column_name
+                FROM information_schema.table_constraints AS tc 
+                JOIN information_schema.key_column_usage AS kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                JOIN information_schema.constraint_column_usage AS ccu
+                    ON ccu.constraint_name = tc.constraint_name
+                WHERE tc.constraint_type = 'FOREIGN KEY' 
+                  AND tc.table_name = 'fato_pos_graduacao'
+                ORDER BY tc.constraint_name
+            """)
+            
+            fk_result = conn.execute(fk_query)
+            fks = fk_result.fetchall()
+            
+        log_message(f"✅ Primary Keys encontradas: {len(pks)}")
+        for pk in pks:
+            log_message(f"   📋 {pk.table_name}.{pk.column_name} ({pk.constraint_name})")
+            
+        log_message(f"✅ Foreign Keys encontradas: {len(fks)}")
+        for fk in fks:
+            log_message(f"   🔗 {fk.column_name} -> {fk.foreign_table_name}.{fk.foreign_column_name}")
+        
+        # Verificação ajustada: espera-se 8 dimensões com PKs e 4 FKs na tabela fato simplificada
+        # Fato simplificada usa apenas: tempo_sk, localidade_sk, tema_sk, ies_sk
+        pks_ok = len(pks) >= 8  # 8 dimensões devem ter PKs
+        fks_ok = len(fks) >= 4  # 4 FKs na tabela fato simplificada
+        
+        if pks_ok and fks_ok:
+            log_message("✅ Schema íntegro: PKs e FKs criadas conforme modelo simplificado")
+            return True
+        else:
+            missing_pks = max(0, 8 - len(pks))
+            missing_fks = max(0, 4 - len(fks))
+            if missing_pks > 0:
+                log_message(f"⚠️  Faltam {missing_pks} Primary Keys", "WARNING")
+            if missing_fks > 0:
+                log_message(f"⚠️  Faltam {missing_fks} Foreign Keys na tabela fato", "WARNING")
+            return False
+        
+    except Exception as e:
+        log_message(f"Erro ao criar banco de dados: {e}", "ERROR")
+        return False
+
 def executar_etl_completo():
     """
     Executa o processo completo de ETL.
@@ -172,6 +249,10 @@ def executar_etl_completo():
         
         # 3. Popular tabela fato
         ("Python", "../models/facts/create_fact_table.py", "População da tabela fato"),
+        
+        # 4. Definir chaves primárias e estrangeiras
+        ("SQL", "../../sql/ddl/add_pk.sql", "Definição de chaves primárias"),
+        ("SQL", "../../sql/ddl/add_fk.sql", "Definição de chaves estrangeiras"),
     ]
     
     # Executar scripts em sequência
@@ -222,6 +303,14 @@ def executar_etl_completo():
         print("\n📋 Scripts executados:")
         for i, script in enumerate(scripts_executados, 1):
             print(f"   {i:2d}. ✅ {script}")
+        
+        # Verificar integridade do schema
+        print("\n" + "="*40)
+        log_message("=== VERIFICAÇÃO DE INTEGRIDADE DO SCHEMA ===")
+        if verificar_integridade_schema():
+            log_message("✅ Schema íntegro: PKs e FKs criadas corretamente")
+        else:
+            log_message("⚠️  Possíveis problemas de integridade detectados", "WARNING")
     else:
         log_message("=== ❌ ETL COMPLETO FINALIZADO COM ERROS ===", "ERROR")
         print("\n📊 RELATÓRIO DE EXECUÇÃO:")

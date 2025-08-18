@@ -1,13 +1,11 @@
 .env
 *.log
-/seeds/*
-/migration/backup_migration/
-/migration/*
+seeds/*
 .DS_Store
-etl/example_new_etl.py
 sql/dml/consulta_temas_por_uf_raw.sql
 
 # Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
+migrations/*
