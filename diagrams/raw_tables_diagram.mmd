@@ -1,0 +1,181 @@
+```mermaid
+erDiagram
+    %% =============================================
+    %% DIAGRAMA DAS TABELAS RAW - DATA WAREHOUSE CAPES
+    %% Dados Brutos Padronizados para ETL
+    %% =============================================
+
+    raw_ies_api {
+        integer _original PK "ID original da API"
+        integer an_base "Ano base (2025)"
+        string des_grande_area_conhecimento "Grande área do conhecimento"
+        string des_area_conhecimento "Área do conhecimento"
+        string des_subarea_conhecimento "Subárea do conhecimento"
+        string des_especialidade "Especialidade"
+        integer cod_area_avaliacao "Código da área de avaliação"
+        string des_area_avaliacao "Descrição da área de avaliação"
+        integer cod_entidade_capes "Código CAPES da IES"
+        string cod_entidade_emec "Código e-MEC da IES"
+        string sg_entidade_ensino "Sigla da IES"
+        string des_entidade_ensino "Nome completo da IES"
+        string cs_status_juridico "Status jurídico"
+        string des_dependencia_administrativa "Pública/Privada"
+        string des_organizacao_academica "Tipo de organização"
+        string des_regiao "Região geográfica"
+        string des_municipio_programa_ies "Município da IES"
+        string sg_uf_programa "Sigla da UF"
+        string des_modalidade_programa "Modalidade do programa"
+        string cod_programa_ies "Código único do programa"
+        string des_programa_ies "Nome do programa"
+        string des_grau_programa "Grau (Mestrado/Doutorado)"
+        integer cod_conceito_programa "Conceito CAPES (1-7)"
+        integer ano_inicio_programa "Ano de início"
+        string des_situacao_programa "Situação atual"
+        timestamp dt_situacao_programa "Data da situação"
+        integer id_add_foto_programa "ID foto programa"
+        integer id_add_foto_programa_ies "ID foto programa IES"
+    }
+
+    raw_tema {
+        integer id_macrotema_original "ID original do macrotema"
+        string des_macrotema "Descrição do macrotema"
+        string des_tema "Descrição do tema"
+        integer cod_tema "Código sequencial do tema"
+        string des_palavra_chave "Palavra-chave específica"
+        integer id_palavra_chave "ID sequencial da palavra-chave"
+        string uf "Estado (sigla)"
+        string uf_sigla "Sigla da UF"
+        string regiao "Região geográfica"
+        integer cod_macrotema_gerado "Código gerado do macrotema"
+        integer cod_palavra_chave "Código gerado da palavra-chave"
+    }
+
+    raw_ppg {
+        string nome_ppg "Nome do programa de pós-graduação"
+        string sigla_ies "Sigla da instituição"
+        string nome_ies "Nome completo da IES"
+        string categoria_administrativa "Pública/Privada"
+        string organizacao_academica "Tipo de organização"
+        string nome_regiao "Região geográfica"
+        string nome_municipio_programa "Município do programa"
+        string sigla_uf_programa "Sigla da UF"
+        string nome_modalidade_programa "Modalidade"
+        string codigo_programa_ies "Código único do programa"
+        string nome_grau_programa "Grau acadêmico"
+        integer conceito_capes "Conceito CAPES"
+        integer ano_inicio_programa "Ano de início"
+        string codigo_grande_area_ppg "Código grande área"
+        string grande_area_ppg "Grande área do conhecimento"
+        string codigo_area_conhecimento_ppg "Código área conhecimento"
+        string area_conhecimento_ppg "Área do conhecimento"
+        string id_area_avaliacao_ppg "ID área avaliação"
+        string area_avaliacao_ppg "Área de avaliação"
+        integer total_cursos_ppg "Total de cursos"
+        integer qtd_docentes_ppg "Quantidade de docentes"
+        integer qtd_discentes_matriculados_ppg "Quantidade de discentes"
+    }
+
+    raw_docente {
+        string an_base "Ano base"
+        string sg_entidade_ensino "Sigla da IES"
+        string des_entidade_ensino "Nome da IES"
+        string cs_status_juridico "Status jurídico"
+        string des_dependencia_administrativa "Dependência administrativa"
+        string des_organizacao_academica "Organização acadêmica"
+        string des_grande_area_conhecimento "Grande área"
+        string des_area_conhecimento "Área do conhecimento"
+        string des_area_avaliacao "Área de avaliação"
+        string des_regiao "Região"
+        string des_municipio_programa_ies "Município"
+        string sg_uf_programa "UF do programa"
+        string des_modalidade_programa "Modalidade"
+        string cod_programa_ies "Código do programa"
+        string des_programa_ies "Nome do programa"
+        string des_grau_programa "Grau"
+        string cod_docente "Código do docente"
+        string des_situacao_docente "Situação do docente"
+        string des_categoria_docente "Categoria"
+        integer an_coleta_capes "Ano da coleta"
+        string des_faixa_etaria "Faixa etária"
+        string cs_sexo "Sexo"
+        string cs_cor_raca "Cor/Raça"
+        string cs_deficiencia "Deficiência"
+        string des_nacionalidade "Nacionalidade"
+        string sg_uf_nascimento "UF nascimento"
+        string des_titulacao_maxima "Titulação máxima"
+    }
+
+    raw_producao {
+        integer _original PK "ID original do registro"
+        integer an_base "Ano base"
+        string des_tipo_producao "Tipo de produção acadêmica"
+        string des_subtipo_producao "Subtipo da produção"
+        string des_entidade_ensino "Nome da IES"
+        string sg_entidade_ensino "Sigla da IES"
+        string des_programa_ies "Nome do programa"
+        string cod_programa_ies "Código do programa"
+        string des_grande_area_conhecimento "Grande área"
+        string des_area_conhecimento "Área do conhecimento"
+        string des_area_avaliacao "Área de avaliação"
+        string des_regiao "Região"
+        string sg_uf_programa "UF do programa"
+        string des_municipio_programa_ies "Município"
+        string titulo_producao "Título da produção"
+        string autor_producao "Autor principal"
+        integer ano_producao "Ano de produção"
+        string veiculo_publicacao "Veículo de publicação"
+        string classificacao_qualis "Classificação Qualis"
+        string des_categoria_administrativa "Categoria administrativa"
+        integer qtd_paginas "Quantidade de páginas"
+        string idioma_producao "Idioma da produção"
+        string pais_publicacao "País de publicação"
+    }
+
+    %% =============================================
+    %% RELACIONAMENTOS LÓGICOS
+    %% (Baseados nos campos em comum para ETL)
+    %% =============================================
+
+    %% Relacionamentos por UF
+    raw_ies_api ||--o{ raw_tema : "sg_uf_programa = uf"
+    raw_ies_api ||--o{ raw_ppg : "sg_uf_programa = sigla_uf_programa"
+    raw_ies_api ||--o{ raw_docente : "sg_uf_programa = sg_uf_programa"
+    raw_ies_api ||--o{ raw_producao : "sg_uf_programa = sg_uf_programa"
+
+    %% Relacionamentos por IES
+    raw_ies_api ||--o{ raw_ppg : "des_entidade_ensino = nome_ies"
+    raw_ies_api ||--o{ raw_docente : "des_entidade_ensino = des_entidade_ensino"
+    raw_ies_api ||--o{ raw_producao : "des_entidade_ensino = des_entidade_ensino"
+
+    %% Relacionamentos por Programa
+    raw_ies_api ||--o{ raw_ppg : "cod_programa_ies = codigo_programa_ies"
+    raw_ppg ||--o{ raw_docente : "cod_programa_ies = cod_programa_ies"
+    raw_ppg ||--o{ raw_producao : "cod_programa_ies = cod_programa_ies"
+
+    %% =============================================
+    %% NOTAS TÉCNICAS
+    %% =============================================
+    %%{
+        note: "Tabelas Raw - Dados Brutos Padronizados"
+        note: "• raw_ies_api: 3,568 registros (API CAPES IES)"
+        note: "• raw_tema: 5,987 registros (Excel + desnormalização)"
+        note: "• raw_ppg: Programas pós-graduação (CSV 2024)"
+        note: "• raw_docente: ~100k+ docentes (CSV CAPES)"
+        note: "• raw_producao: Artigos periódicos (API CAPES)"
+        note: ""
+        note: "Padronização Aplicada:"
+        note: "• codigo → cod"
+        note: "• nome_ → des_"
+        note: "• ds_ → des_"
+        note: "• cd_ → cod_"
+        note: "• _id → _original"
+        note: "• quantidade → qtd"
+        note: "• Snake_case, sem acentos"
+        note: ""
+        note: "Relacionamentos para ETL:"
+        note: "• Por UF (sg_uf_programa, uf, sigla_uf_programa)"
+        note: "• Por IES (des_entidade_ensino, nome_ies)"
+        note: "• Por Programa (cod_programa_ies, codigo_programa_ies)"
+        note: "• Por Região (des_regiao, nome_regiao, regiao)"
+    %%}
+```

@@ -1,6 +1,6 @@
 .env
 *.log
-staging/*
+staging/data/*
 .DS_Store
 sql/dml/consulta_temas_por_uf_raw.sql
 

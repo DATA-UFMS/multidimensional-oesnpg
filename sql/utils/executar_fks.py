@@ -31,7 +31,7 @@ def executar_sql_fks():
         cursor = conn.cursor()
 
         # Primeiro: Executar o script SQL de criação de PKs nas dimensões
-        print("🔑 Executando script de criação de chaves primárias...")
+        print("Executando script de criação de chaves primárias...")
         
         # Lista das PKs para criar individualmente
         pk_commands = [
@@ -92,7 +92,7 @@ def executar_sql_fks():
             print("❌ Tabela fato_pos_graduacao não existe! Execute primeiro o script de criação da FATO.")
             return
         
-        print("🚀 Executando script de criação de chaves estrangeiras...")
+        print("Executando script de criação de chaves estrangeiras...")
         
         # Lista das FKs para criar individualmente (apenas as que fazem sentido para nossa FATO)
         fk_commands = [
