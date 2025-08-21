@@ -1,333 +1,450 @@
 #!/usr/bin/env python3
 """
-Populador da Dimensão PPG (Programas de Pós-Graduação)
+🎓 DIMENSÃO PPG - Data Warehouse Observatório CAPES
+=======================================================
+Cria a dimensão dim_ppg baseada nos dados da raw_ppg
+Estrutura: ppg_sk, informações dos Programas de Pós-Graduação
+Data: 21/08/2025
 """
 
-import sys
-import os
 import pandas as pd
 import numpy as np
-from datetime import datetime
-
-# Adicionar path para imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-
-from src.core.core import get_db_manager, get_capes_api, Config, log_execution
+import os
+import sys
+from dotenv import load_dotenv
 import logging
 
+# Adicionar path para imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.core.core import get_db_manager
+
+# Carregar variáveis de ambiente
+load_dotenv()
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-@log_execution
-def extrair_dados_ppg_api():
+def carregar_dados_raw_ppg():
     """
-    Extrai dados dos PPGs da API CAPES.
+    Carrega os dados da tabela raw_ppg para DataFrame.
     """
-    logger.info("🏛️ Extraindo dados dos PPGs da API CAPES...")
+    logger.info("📥 Carregando dados da raw_ppg...")
+    db = get_db_manager()
     
     try:
-        api = get_capes_api()
-        config = Config()
+        query = """
+        SELECT 
+            ano_base,
+            codigo_capes_da_ies,
+            nome_da_ies,
+            "nome_da_região_da_ies" as nome_regiao_ies,
+            "sigla_da_região_da_ies" as sigla_regiao_ies,
+            uf_da_ies,
+            "status_jurídico_da_ies" as status_juridico_ies,
+            "código_do_ppg" as codigo_ppg,
+            nome_ppg,
+            nota_do_ppg,
+            "modalidade_do_ppg__acadêmico_ou_profissional" as modalidade_ppg,
+            "situação_do_ppg" as situacao_ppg,
+            "programa_em_rede_sim/não" as programa_em_rede,
+            "código_grande_area_do_ppg" as codigo_grande_area,
+            grande_area_do_ppg,
+            "código_area_de_conhecimento_do_ppg" as codigo_area_conhecimento,
+            area_de_conhecimento_do_ppg,
+            "id_area_de_avaliação_do_ppg" as id_area_avaliacao,
+            "area_de_avaliação_do_ppg" as area_avaliacao,
+            total_de_cursos_do_ppg,
+            quantidade_de_docentes_no_ppg,
+            quantidade_de_discentes_matriculados_no_ppg
+        FROM raw_ppg
+        WHERE nome_ppg IS NOT NULL
+        ORDER BY nome_ppg;
+        """
         
-        # Buscar dados de PPG
-        resource_id = config.RESOURCE_IDS.get('ppg', '21be9dd6-d4fa-470e-a5b9-b59c20879f10')
-        
-        df_raw = api.fetch_all_data(resource_id)
-        
-        if df_raw.empty:
-            logger.error("❌ Nenhum dado de PPG encontrado na API")
-            return pd.DataFrame()
-        
-        logger.info(f"✅ Dados dos PPGs extraídos: {len(df_raw)} registros")
-        return df_raw
+        df = db.execute_query(query)
+        logger.info(f"✅ Carregados {len(df):,} registros da raw_ppg")
+        return df
         
     except Exception as e:
-        logger.error(f"❌ Erro ao extrair dados da API: {e}")
-        return pd.DataFrame()
+        logger.error(f"❌ Erro ao carregar dados da raw_ppg: {str(e)}")
+        return None
 
-@log_execution
-def processar_dados_ppg(df_raw):
+def processar_dataframe_ppg(df):
     """
-    Processa e limpa os dados dos PPGs.
+    Processa o DataFrame de PPG aplicando transformações e limpezas.
     """
-    logger.info("🔄 Processando dados dos PPGs...")
+    if df is None or df.empty:
+        logger.error("❌ DataFrame vazio ou None para processamento")
+        return None
+        
+    logger.info(f"🔄 Processando {len(df):,} registros de PPG...")
     
     try:
-        if df_raw.empty:
-            logger.error("❌ DataFrame vazio para processamento")
-            return pd.DataFrame()
+        # Fazer cópia para não alterar o original
+        df_processed = df.copy()
         
-        # Mapear colunas baseado nos dados reais da API
-        colunas_mapeamento = {
-            'codigo_programa': 'CD_PROGRAMA_IES',
-            'nome_programa': 'NM_PROGRAMA_IES', 
-            'nivel_programa': 'CD_NIVEL_PROGRAMA',
-            'ies_vinculada': 'NM_ENTIDADE_ENSINO',
-            'codigo_ies': 'CD_ENTIDADE_ENSINO',
-            'sigla_ies': 'SG_ENTIDADE_ENSINO',
-            'uf': 'SG_UF_IES',
-            'regiao': 'NM_REGIAO',
-            'area_conhecimento': 'NM_AREA_CONHECIMENTO',
-            'area_avaliacao': 'NM_AREA_AVALIACAO',
-            'modalidade': 'NM_MODALIDADE_PROGRAMA',
-            'nota_capes': 'NR_NOTA_PROGRAMA',
-            'situacao': 'DS_SITUACAO_PROGRAMA',
-            'ano_base': 'AN_BASE'
-        }
+        # 1. Remover duplicatas baseado no código do PPG
+        df_processed = df_processed.drop_duplicates(subset=['codigo_ppg'], keep='first')
+        logger.info(f"📊 Processando {len(df_processed):,} PPGs únicos (removidas {len(df) - len(df_processed):,} duplicatas)")
         
-        # Verificar quais colunas existem no DataFrame
-        colunas_existentes = {}
-        for col_nova, col_original in colunas_mapeamento.items():
-            colunas_disponiveis = [c for c in df_raw.columns if col_original.upper() in c.upper()]
-            if colunas_disponiveis:
-                colunas_existentes[col_nova] = colunas_disponiveis[0]
-            else:
-                logger.warning(f"⚠️ Coluna {col_original} não encontrada")
+        # 2. Limpar e padronizar campos de texto
+        logger.info("🧹 Limpando e padronizando dados...")
         
-        # Criar DataFrame processado
-        df_processado = pd.DataFrame()
+        colunas_texto = [
+            'nome_da_ies', 'nome_regiao_ies', 'sigla_regiao_ies', 'uf_da_ies',
+            'status_juridico_ies', 'nome_ppg', 'modalidade_ppg', 'situacao_ppg',
+            'programa_em_rede', 'grande_area_do_ppg', 'area_de_conhecimento_do_ppg',
+            'area_avaliacao'
+        ]
         
-        for col_nova, col_original in colunas_existentes.items():
-            df_processado[col_nova] = df_raw[col_original]
+        for col in colunas_texto:
+            if col in df_processed.columns:
+                df_processed[col] = df_processed[col].fillna('Não informado')
+                df_processed[col] = df_processed[col].astype(str).str.strip()
+                df_processed[col] = df_processed[col].replace(['', 'nan', 'None'], 'Não informado')
         
-        # Tratar valores nulos e padronizar
-        df_processado = df_processado.fillna('Desconhecido')
+        # 3. Tratar campos numéricos
+        colunas_numericas = [
+            'ano_base', 'codigo_capes_da_ies', 'codigo_ppg', 'codigo_grande_area',
+            'codigo_area_conhecimento', 'id_area_avaliacao', 'total_de_cursos_do_ppg',
+            'quantidade_de_docentes_no_ppg', 'quantidade_de_discentes_matriculados_no_ppg'
+        ]
         
-        # Normalizar strings
-        string_cols = ['nome_programa', 'ies_vinculada', 'sigla_ies', 'uf', 'regiao', 
-                      'area_conhecimento', 'area_avaliacao', 'modalidade', 'situacao']
+        for col in colunas_numericas:
+            if col in df_processed.columns:
+                df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0).astype(int)
         
-        for col in string_cols:
-            if col in df_processado.columns:
-                df_processado[col] = df_processado[col].astype(str).str.strip().str.upper()
+        # Tratar nota do PPG (pode ser decimal)
+        if 'nota_do_ppg' in df_processed.columns:
+            df_processed['nota_do_ppg'] = pd.to_numeric(df_processed['nota_do_ppg'], errors='coerce').fillna(0.0)
         
-        # Padronizar região
-        if 'regiao' in df_processado.columns:
+        # 4. Padronizar modalidade
+        if 'modalidade_ppg' in df_processed.columns:
+            modalidade_map = {
+                'ACADEMICO': 'Acadêmico',
+                'PROFISSIONAL': 'Profissional',
+                'ACADÊMICO': 'Acadêmico'
+            }
+            df_processed['modalidade_ppg'] = df_processed['modalidade_ppg'].str.upper()
+            df_processed['modalidade_ppg'] = df_processed['modalidade_ppg'].map(modalidade_map).fillna('Não informado')
+        
+        # 5. Padronizar situação
+        if 'situacao_ppg' in df_processed.columns:
+            situacao_map = {
+                'EM_FUNCIONAMENTO': 'Em Funcionamento',
+                'EM FUNCIONAMENTO': 'Em Funcionamento',
+                'DESATIVADO': 'Desativado',
+                'SUSPENSO': 'Suspenso'
+            }
+            df_processed['situacao_ppg'] = df_processed['situacao_ppg'].str.upper()
+            df_processed['situacao_ppg'] = df_processed['situacao_ppg'].map(situacao_map).fillna('Não informado')
+        
+        # 6. Padronizar programa em rede
+        if 'programa_em_rede' in df_processed.columns:
+            rede_map = {
+                'SIM': 'Sim',
+                'NÃO': 'Não',
+                'NAO': 'Não'
+            }
+            df_processed['programa_em_rede'] = df_processed['programa_em_rede'].str.upper()
+            df_processed['programa_em_rede'] = df_processed['programa_em_rede'].map(rede_map).fillna('Não')
+        
+        # 7. Padronizar regiões
+        if 'nome_regiao_ies' in df_processed.columns:
             regiao_map = {
                 'NORTE': 'Norte',
-                'NORDESTE': 'Nordeste', 
+                'NORDESTE': 'Nordeste',
                 'CENTRO-OESTE': 'Centro-Oeste',
                 'SUDESTE': 'Sudeste',
                 'SUL': 'Sul'
             }
-            df_processado['regiao'] = df_processado['regiao'].map(regiao_map).fillna('Desconhecido')
+            df_processed['nome_regiao_ies'] = df_processed['nome_regiao_ies'].str.upper()
+            df_processed['nome_regiao_ies'] = df_processed['nome_regiao_ies'].map(regiao_map).fillna('Não informado')
         
-        # Tratar ano base
-        if 'ano_base' in df_processado.columns:
-            df_processado['ano_base'] = pd.to_numeric(df_processado['ano_base'], errors='coerce').fillna(2024).astype(int)
-        else:
-            df_processado['ano_base'] = 2024
+        # 8. Padronizar UF
+        if 'uf_da_ies' in df_processed.columns:
+            df_processed['uf_da_ies'] = df_processed['uf_da_ies'].str.upper().str.strip()
         
-        # Tratar nota CAPES
-        if 'nota_capes' in df_processado.columns:
-            df_processado['nota_capes'] = pd.to_numeric(df_processado['nota_capes'], errors='coerce').fillna(0)
-        else:
-            df_processado['nota_capes'] = 0
-        
-        # Remover duplicatas
-        colunas_duplicata = ['codigo_programa', 'nome_programa', 'ies_vinculada']
-        colunas_existentes_dup = [col for col in colunas_duplicata if col in df_processado.columns]
-        
-        if colunas_existentes_dup:
-            registros_antes = len(df_processado)
-            df_processado = df_processado.drop_duplicates(subset=colunas_existentes_dup)
-            registros_depois = len(df_processado)
-            logger.info(f"📊 Duplicatas removidas: {registros_antes - registros_depois}")
-        
-        logger.info(f"✅ Dados dos PPGs processados: {len(df_processado)} registros")
-        return df_processado
+        logger.info(f"✅ Processamento concluído: {len(df_processed):,} registros processados")
+        return df_processed
         
     except Exception as e:
-        logger.error(f"❌ Erro ao processar dados: {e}")
-        return pd.DataFrame()
+        logger.error(f"❌ Erro durante processamento: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
 
-@log_execution
-def criar_dimensao_ppg(df_processado):
+def criar_dimensao_ppg():
     """
-    Cria a dimensão PPG com SK e estrutura adequada.
+    Cria a dimensão PPG usando pandas para manipular os dados.
     """
-    logger.info("🏗️ Criando dimensão PPG...")
+    logger.info("🎓 Criando dimensão PPG com pandas...")
+    db = get_db_manager()
     
     try:
-        if df_processado.empty:
-            logger.warning("⚠️ DataFrame vazio - criando apenas registro SK=0")
-            df_ppg = pd.DataFrame([{
-                'ppg_sk': 0,
-                'codigo_programa': 'DESCONHECIDO',
-                'nome_programa': 'Desconhecido',
-                'nivel_programa': 'DESCONHECIDO',
-                'ies_vinculada': 'Desconhecido',
-                'codigo_ies': 'DESCONHECIDO',
-                'sigla_ies': 'DESCONHECIDO',
-                'uf': 'DESCONHECIDO',
-                'regiao': 'Desconhecido',
-                'area_conhecimento': 'Desconhecido',
-                'area_avaliacao': 'Desconhecido',
-                'modalidade': 'Desconhecido',
-                'nota_capes': 0.0,
-                'situacao': 'DESCONHECIDO',
-                'ano_base': 2024
-            }])
-        else:
-            # Criar registro SK=0 (desconhecido)
-            registro_desconhecido = {
-                'ppg_sk': 0,
-                'codigo_programa': 'DESCONHECIDO',
-                'nome_programa': 'Desconhecido',
-                'nivel_programa': 'DESCONHECIDO',
-                'ies_vinculada': 'Desconhecido',
-                'codigo_ies': 'DESCONHECIDO',
-                'sigla_ies': 'DESCONHECIDO',
-                'uf': 'DESCONHECIDO',
-                'regiao': 'Desconhecido',
-                'area_conhecimento': 'Desconhecido',
-                'area_avaliacao': 'Desconhecido',
-                'modalidade': 'Desconhecido',
-                'nota_capes': 0.0,
-                'situacao': 'DESCONHECIDO',
-                'ano_base': 2024
-            }
-            
-            # Criar dimensão com dados processados
-            df_ppg = df_processado.copy()
-            
-            # Adicionar surrogate key sequencial
-            df_ppg['ppg_sk'] = range(1, len(df_ppg) + 1)
-            
-            # Garantir que todas as colunas existam
-            colunas_obrigatorias = [
-                'codigo_programa', 'nome_programa', 'nivel_programa', 'ies_vinculada',
-                'codigo_ies', 'sigla_ies', 'uf', 'regiao', 'area_conhecimento',
-                'area_avaliacao', 'modalidade', 'nota_capes', 'situacao', 'ano_base'
-            ]
-            
-            for col in colunas_obrigatorias:
-                if col not in df_ppg.columns:
-                    df_ppg[col] = 'Desconhecido' if col != 'nota_capes' and col != 'ano_base' else (0.0 if col == 'nota_capes' else 2024)
-            
-            # Adicionar registro SK=0 no início
-            df_ppg = pd.concat([pd.DataFrame([registro_desconhecido]), df_ppg], ignore_index=True)
+        # 1. Remover tabela existente se houver
+        logger.info("🗑️  Removendo dim_ppg existente...")
+        drop_sql = "DROP TABLE IF EXISTS dim_ppg CASCADE;"
+        db.execute_sql(drop_sql)
         
-        # Reordenar colunas
-        colunas_finais = [
-            'ppg_sk', 'codigo_programa', 'nome_programa', 'nivel_programa',
-            'ies_vinculada', 'codigo_ies', 'sigla_ies', 'uf', 'regiao',
-            'area_conhecimento', 'area_avaliacao', 'modalidade', 
-            'nota_capes', 'situacao', 'ano_base'
+        # 2. Criar tabela dim_ppg
+        logger.info("🏗️  Criando nova estrutura dim_ppg...")
+        create_sql = """
+        CREATE TABLE dim_ppg (
+            ppg_sk SERIAL PRIMARY KEY,
+            codigo_programa VARCHAR(50),
+            nome_programa VARCHAR(500),
+            nota_programa DECIMAL(3,1),
+            modalidade VARCHAR(50),
+            situacao VARCHAR(50),
+            programa_em_rede VARCHAR(10),
+            ies_vinculada VARCHAR(500),
+            codigo_ies INTEGER,
+            uf VARCHAR(10),
+            regiao VARCHAR(50),
+            area_conhecimento VARCHAR(200),
+            grande_area VARCHAR(200),
+            area_avaliacao VARCHAR(200),
+            total_cursos INTEGER,
+            quantidade_docentes INTEGER,
+            quantidade_discentes INTEGER,
+            ano_base INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        
+        if not db.execute_sql(create_sql):
+            logger.error("❌ Erro ao criar tabela dim_ppg")
+            return False
+            
+        # 3. Inserir registro SK=0 (desconhecido)
+        logger.info("🔧 Inserindo registro DESCONHECIDO (SK=0)...")
+        sk0_data = pd.DataFrame({
+            'ppg_sk': [0],
+            'codigo_programa': ['DESCONHECIDO'],
+            'nome_programa': ['NÃO INFORMADO'],
+            'nota_programa': [0.0],
+            'modalidade': ['NÃO INFORMADO'],
+            'situacao': ['NÃO INFORMADO'],
+            'programa_em_rede': ['Não'],
+            'ies_vinculada': ['NÃO INFORMADO'],
+            'codigo_ies': [0],
+            'uf': ['XX'],
+            'regiao': ['NÃO INFORMADO'],
+            'area_conhecimento': ['NÃO INFORMADO'],
+            'grande_area': ['NÃO INFORMADO'],
+            'area_avaliacao': ['NÃO INFORMADO'],
+            'total_cursos': [0],
+            'quantidade_docentes': [0],
+            'quantidade_discentes': [0],
+            'ano_base': [0]
+        })
+        
+        # Inserir registro SK=0
+        db.save_dataframe(sk0_data, 'dim_ppg', if_exists='append')
+        
+        # 4. Carregar e processar dados de PPG
+        df_raw = carregar_dados_raw_ppg()
+        if df_raw is None:
+            logger.error("❌ Falha ao carregar dados da raw_ppg")
+            return False
+            
+        df_ppg = processar_dataframe_ppg(df_raw)
+        if df_ppg is None:
+            logger.error("❌ Falha ao processar DataFrame de PPG")
+            return False
+        
+        # 5. Mapear colunas para a estrutura da dimensão
+        logger.info("🔄 Mapeando colunas para estrutura da dimensão...")
+        df_final = pd.DataFrame()
+        
+        # Mapeamento de colunas
+        mapeamento = {
+            'codigo_programa': 'codigo_ppg',
+            'nome_programa': 'nome_ppg',
+            'nota_programa': 'nota_do_ppg',
+            'modalidade': 'modalidade_ppg',
+            'situacao': 'situacao_ppg',
+            'programa_em_rede': 'programa_em_rede',
+            'ies_vinculada': 'nome_da_ies',
+            'codigo_ies': 'codigo_capes_da_ies',
+            'uf': 'uf_da_ies',
+            'regiao': 'nome_regiao_ies',
+            'area_conhecimento': 'area_de_conhecimento_do_ppg',
+            'grande_area': 'grande_area_do_ppg',
+            'area_avaliacao': 'area_avaliacao',
+            'total_cursos': 'total_de_cursos_do_ppg',
+            'quantidade_docentes': 'quantidade_de_docentes_no_ppg',
+            'quantidade_discentes': 'quantidade_de_discentes_matriculados_no_ppg',
+            'ano_base': 'ano_base'
+        }
+        
+        # Aplicar mapeamento
+        for col_destino, col_origem in mapeamento.items():
+            if col_origem in df_ppg.columns:
+                df_final[col_destino] = df_ppg[col_origem]
+            else:
+                # Valores padrão baseado no tipo
+                if col_destino in ['codigo_ies', 'total_cursos', 'quantidade_docentes', 'quantidade_discentes', 'ano_base']:
+                    df_final[col_destino] = 0
+                elif col_destino == 'nota_programa':
+                    df_final[col_destino] = 0.0
+                elif col_destino == 'programa_em_rede':
+                    df_final[col_destino] = 'Não'
+                else:
+                    df_final[col_destino] = 'Não informado'
+        
+        # 6. Inserir dados processados no banco
+        logger.info("💾 Inserindo dados processados no banco...")
+        db.save_dataframe(df_final, 'dim_ppg', if_exists='append')
+        
+        # 7. Verificar inserção
+        count_query = "SELECT COUNT(*) as total FROM dim_ppg;"
+        result = db.execute_query(count_query)
+        total = result.iloc[0]['total']
+        
+        logger.info(f"✅ dim_ppg criada com {total:,} registros")
+        
+        # 8. Criar índices para performance
+        logger.info("🔍 Criando índices...")
+        indices_sql = [
+            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_codigo ON dim_ppg(codigo_programa);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_uf ON dim_ppg(uf);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_regiao ON dim_ppg(regiao);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_modalidade ON dim_ppg(modalidade);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_area ON dim_ppg(area_conhecimento);"
         ]
         
-        df_ppg = df_ppg[colunas_finais]
+        for idx_sql in indices_sql:
+            db.execute_sql(idx_sql)
         
-        logger.info(f"✅ Dimensão PPG criada com {len(df_ppg)} registros")
-        return df_ppg
-        
-    except Exception as e:
-        logger.error(f"❌ Erro ao criar dimensão: {e}")
-        return pd.DataFrame()
-
-@log_execution
-def salvar_dimensao_ppg(df_ppg):
-    """
-    Salva a dimensão PPG no banco de dados.
-    """
-    try:
-        if df_ppg.empty:
-            logger.error("❌ DataFrame vazio - não há dados para salvar")
-            return False
-            
-        db = get_db_manager()
-        success = db.save_dataframe(df_ppg, 'dim_ppg', if_exists='replace')
-        
-        if success:
-            logger.info(f"✅ Dimensão PPG salva no PostgreSQL com {len(df_ppg)} registros")
-            return True
-        else:
-            logger.error("❌ Falha ao salvar dimensão PPG")
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ Erro ao salvar dimensão: {e}")
-        return False
-
-@log_execution
-def gerar_estatisticas_ppg(df_ppg):
-    """
-    Gera estatísticas da dimensão PPG.
-    """
-    if df_ppg.empty:
-        logger.info("❌ Não há dados para gerar estatísticas")
-        return
-        
-    logger.info("\n📊 Estatísticas da dimensão PPG:")
-    logger.info(f"Total de PPGs: {len(df_ppg)}")
-    
-    # Estatísticas por região
-    if 'regiao' in df_ppg.columns:
-        logger.info("\nPPGs por região:")
-        regiao_stats = df_ppg['regiao'].value_counts()
-        for regiao, count in regiao_stats.items():
-            logger.info(f"  {regiao}: {count} PPGs")
-    
-    # Estatísticas por UF
-    if 'uf' in df_ppg.columns:
-        logger.info(f"\nUFs únicas: {df_ppg['uf'].nunique()}")
-    
-    # Estatísticas por modalidade
-    if 'modalidade' in df_ppg.columns:
-        logger.info("\nPPGs por modalidade:")
-        modalidade_stats = df_ppg['modalidade'].value_counts()
-        for modalidade, count in modalidade_stats.items():
-            logger.info(f"  {modalidade}: {count} PPGs")
-    
-    # Notas CAPES
-    if 'nota_capes' in df_ppg.columns:
-        notas_validas = df_ppg[df_ppg['nota_capes'] > 0]
-        if not notas_validas.empty:
-            logger.info(f"\nNota CAPES média: {notas_validas['nota_capes'].mean():.1f}")
-            logger.info(f"Nota CAPES mediana: {notas_validas['nota_capes'].median():.1f}")
-
-def main():
-    """
-    Função principal para execução do script.
-    """
-    try:
-        logger.info("🚀 Iniciando processo de criação da dimensão PPG")
-        logger.info("🏛️ Fonte de dados: API CAPES")
-        
-        # 1. Extrair dados da API
-        df_raw = extrair_dados_ppg_api()
-        
-        # 2. Processar dados
-        df_processado = processar_dados_ppg(df_raw)
-        
-        # 3. Criar dimensão
-        df_ppg = criar_dimensao_ppg(df_processado)
-        
-        if df_ppg.empty:
-            logger.error("❌ Falha ao criar dimensão PPG")
-            return False
-        
-        # 4. Salvar no banco
-        if not salvar_dimensao_ppg(df_ppg):
-            return False
-        
-        # 5. Gerar estatísticas
-        gerar_estatisticas_ppg(df_ppg)
-        
-        logger.info("✅ Processo concluído! Dimensão PPG criada com sucesso.")
-        logger.info("💡 A dimensão inclui informações sobre programas de pós-graduação.")
-        
+        logger.info("✅ Índices criados")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Erro na execução principal: {e}")
+        logger.error(f"❌ Erro ao criar dimensão PPG: {str(e)}")
         return False
 
-if __name__ == "__main__":
-    # Configurar logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+def validar_dimensao_ppg():
+    """Valida os dados da dimensão PPG."""
+    logger.info("🔍 Validando dimensão PPG...")
+    db = get_db_manager()
     
-    success = main()
-    sys.exit(0 if success else 1)
+    try:
+        print("\n" + "="*60)
+        print("📊 VALIDAÇÃO DA DIMENSÃO PPG")
+        print("="*60)
+        
+        # 1. Contagem total
+        query_total = "SELECT COUNT(*) as total FROM dim_ppg;"
+        result = db.execute_query(query_total)
+        total = result.iloc[0]['total']
+        print(f"📊 Total de registros: {total:,}")
+        
+        # 2. PPG por região
+        print("\n🌎 PPG por região:")
+        query_regiao = """
+        SELECT 
+            regiao,
+            COUNT(*) as qtd_ppg
+        FROM dim_ppg 
+        WHERE ppg_sk > 0
+        GROUP BY regiao
+        ORDER BY qtd_ppg DESC;
+        """
+        result = db.execute_query(query_regiao)
+        print(result.to_string(index=False))
+        
+        # 3. PPG por modalidade
+        print("\n📚 PPG por modalidade:")
+        query_modalidade = """
+        SELECT 
+            modalidade,
+            COUNT(*) as qtd_ppg
+        FROM dim_ppg 
+        WHERE ppg_sk > 0
+        GROUP BY modalidade
+        ORDER BY qtd_ppg DESC;
+        """
+        result = db.execute_query(query_modalidade)
+        print(result.to_string(index=False))
+        
+        # 4. PPG por situação
+        print("\n📈 PPG por situação:")
+        query_situacao = """
+        SELECT 
+            situacao,
+            COUNT(*) as qtd_ppg
+        FROM dim_ppg 
+        WHERE ppg_sk > 0
+        GROUP BY situacao
+        ORDER BY qtd_ppg DESC;
+        """
+        result = db.execute_query(query_situacao)
+        print(result.to_string(index=False))
+        
+        # 5. Top 10 grandes áreas
+        print("\n🎓 Top 10 grandes áreas:")
+        query_grande_area = """
+        SELECT 
+            grande_area,
+            COUNT(*) as qtd_ppg
+        FROM dim_ppg 
+        WHERE ppg_sk > 0
+        GROUP BY grande_area
+        ORDER BY qtd_ppg DESC
+        LIMIT 10;
+        """
+        result = db.execute_query(query_grande_area)
+        print(result.to_string(index=False))
+        
+        # 6. Distribuição de notas
+        print("\n⭐ Distribuição de notas:")
+        query_notas = """
+        SELECT 
+            nota_programa,
+            COUNT(*) as qtd_ppg
+        FROM dim_ppg 
+        WHERE ppg_sk > 0 AND nota_programa > 0
+        GROUP BY nota_programa
+        ORDER BY nota_programa DESC;
+        """
+        result = db.execute_query(query_notas)
+        print(result.to_string(index=False))
+        
+        print("\n✅ Validação concluída!")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro na validação: {str(e)}")
+
+def main():
+    """Função principal."""
+    try:
+        logger.info("🚀 Iniciando criação da dimensão PPG")
+        
+        # 1. Criar dimensão
+        if not criar_dimensao_ppg():
+            logger.error("❌ Falha na criação da dimensão PPG")
+            return
+            
+        # 2. Validar dimensão
+        validar_dimensao_ppg()
+        
+        print("\n" + "="*70)
+        print("🎉 DIMENSÃO PPG CRIADA COM SUCESSO!")
+        print("="*70)
+        print("✅ Tabela: dim_ppg")
+        print("✅ Fonte: raw_ppg")
+        print("✅ Índices: Performance otimizada")
+        print("✅ Dados: Tratados e normalizados")
+        print("="*70)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro durante criação da dimensão PPG: {str(e)}")
+
+if __name__ == "__main__":
+    main()

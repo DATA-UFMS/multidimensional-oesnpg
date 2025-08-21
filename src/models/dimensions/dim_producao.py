@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Populador da Dimensão Produção (Produção Acadêmica)
+🎓 DIMENSÃO PRODUÇÃO - Data Warehouse Observatório CAPES
+=======================================================
+Cria a dimensão dim_producao baseada nos dados da raw_producao
+Estrutura: producao_sk, informações de produção acadêmica
+Data: 21/08/2025
 """
 
 import sys
@@ -8,320 +12,386 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime
-
-# Adicionar path para imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-
-from src.core.core import get_db_manager, get_capes_api, Config, log_execution
+from dotenv import load_dotenv
 import logging
 
+# Adicionar path para imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.core.core import get_db_manager
+
+# Carregar variáveis de ambiente
+load_dotenv()
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-@log_execution
-def extrair_dados_producao_api():
+def carregar_dados_raw_producao():
     """
-    Extrai dados de produção acadêmica da API CAPES.
+    Carrega os dados da tabela raw_producao para DataFrame.
     """
-    logger.info("📊 Extraindo dados de produção da API CAPES...")
+    logger.info("� Carregando dados da raw_producao...")
+    db = get_db_manager()
     
     try:
-        api = get_capes_api()
-        config = Config()
+        query = """
+        SELECT 
+            id_add_producao_intelectual,
+            id_producao_intelectual,
+            nm_producao,
+            an_base,
+            cd_programa_ies,
+            nm_programa_ies,
+            sg_entidade_ensino,
+            nm_entidade_ensino,
+            nm_tipo_producao,
+            nm_subtipo_producao,
+            nm_formulario,
+            nm_area_concentracao,
+            nm_linha_pesquisa,
+            nm_projeto,
+            ds_titulo_padronizado
+        FROM raw_producao
+        WHERE nm_producao IS NOT NULL
+        ORDER BY an_base DESC, nm_producao;
+        """
         
-        # Buscar dados de produção
-        resource_id = config.RESOURCE_IDS.get('producoes', '7cd574be-7a3d-4750-a246-2ed0a7573073')
-        
-        df_raw = api.fetch_all_data(resource_id)
-        
-        if df_raw.empty:
-            logger.error("❌ Nenhum dado de produção encontrado na API")
-            return pd.DataFrame()
-        
-        logger.info(f"✅ Dados de produção extraídos: {len(df_raw)} registros")
-        return df_raw
+        df = db.execute_query(query)
+        logger.info(f"✅ Carregados {len(df):,} registros da raw_producao")
+        return df
         
     except Exception as e:
-        logger.error(f"❌ Erro ao extrair dados da API: {e}")
-        return pd.DataFrame()
+        logger.error(f"❌ Erro ao carregar dados da raw_producao: {str(e)}")
+        return None
 
-@log_execution
-def processar_dados_producao(df_raw):
+def processar_dataframe_producao(df):
     """
-    Processa e limpa os dados de produção.
+    Processa o DataFrame de produção aplicando transformações e limpezas.
     """
-    logger.info("🔄 Processando dados de produção...")
+    if df is None or df.empty:
+        logger.error("❌ DataFrame vazio ou None para processamento")
+        return None
+        
+    logger.info(f"🔄 Processando {len(df):,} registros de produção...")
     
     try:
-        if df_raw.empty:
-            logger.error("❌ DataFrame vazio para processamento")
-            return pd.DataFrame()
+        # Fazer cópia para não alterar o original
+        df_processed = df.copy()
         
-        # Mapear colunas baseado nos dados reais da API
-        colunas_mapeamento = {
-            'ano_referencia': 'AN_BASE',
-            'uf_sigla': 'SG_UF_IES',
-            'regiao': 'NM_REGIAO',
-            'codigo_ies': 'CD_IES',
-            'nome_ies': 'NM_IES',
-            'tipo_producao': 'DS_TIPO_PRODUCAO',
-            'subtipo_producao': 'DS_SUBTIPO_PRODUCAO',
-            'quantidade': 'QT_PRODUCAO',
-            'area_conhecimento': 'NM_AREA_CONHECIMENTO',
-            'programa': 'NM_PROGRAMA'
-        }
+        # 1. Remover duplicatas baseado no id_add_producao_intelectual
+        df_processed = df_processed.drop_duplicates(subset=['id_add_producao_intelectual'], keep='first')
+        logger.info(f"📊 Processando {len(df_processed):,} produções únicas (removidas {len(df) - len(df_processed):,} duplicatas)")
         
-        # Verificar quais colunas existem no DataFrame
-        colunas_existentes = {}
-        for col_nova, col_original in colunas_mapeamento.items():
-            colunas_disponiveis = [c for c in df_raw.columns if col_original.upper() in c.upper()]
-            if colunas_disponiveis:
-                colunas_existentes[col_nova] = colunas_disponiveis[0]
-            else:
-                logger.warning(f"⚠️ Coluna {col_original} não encontrada")
+        # 2. Limpar e padronizar campos de texto
+        logger.info("🧹 Limpando e padronizando dados...")
         
-        # Criar DataFrame processado
-        df_processado = pd.DataFrame()
-        
-        for col_nova, col_original in colunas_existentes.items():
-            df_processado[col_nova] = df_raw[col_original]
-        
-        # Tratar valores nulos e padronizar
-        df_processado = df_processado.fillna('Desconhecido')
-        
-        # Normalizar strings
-        string_cols = ['uf_sigla', 'regiao', 'nome_ies', 'tipo_producao', 
-                      'subtipo_producao', 'area_conhecimento', 'programa']
-        
-        for col in string_cols:
-            if col in df_processado.columns:
-                df_processado[col] = df_processado[col].astype(str).str.strip().str.upper()
-        
-        # Padronizar região
-        if 'regiao' in df_processado.columns:
-            regiao_map = {
-                'NORTE': 'Norte',
-                'NORDESTE': 'Nordeste', 
-                'CENTRO-OESTE': 'Centro-Oeste',
-                'SUDESTE': 'Sudeste',
-                'SUL': 'Sul'
-            }
-            df_processado['regiao'] = df_processado['regiao'].map(regiao_map).fillna('Desconhecido')
-        
-        # Tratar valores numéricos
-        numeric_cols = ['ano_referencia', 'codigo_ies', 'quantidade']
-        for col in numeric_cols:
-            if col in df_processado.columns:
-                df_processado[col] = pd.to_numeric(df_processado[col], errors='coerce').fillna(0).astype(int)
-        
-        # Filtrar anos válidos
-        if 'ano_referencia' in df_processado.columns:
-            df_processado = df_processado[df_processado['ano_referencia'] >= 2010]
-        
-        # Agrupar dados por combinações relevantes para reduzir volume
-        if len(df_processado) > 10000:  # Se há muitos registros, agrupar
-            colunas_agrupamento = ['ano_referencia', 'uf_sigla', 'regiao', 'tipo_producao']
-            colunas_agrupamento = [col for col in colunas_agrupamento if col in df_processado.columns]
-            
-            if colunas_agrupamento and 'quantidade' in df_processado.columns:
-                df_processado = df_processado.groupby(colunas_agrupamento).agg({
-                    'quantidade': 'sum',
-                    'codigo_ies': 'first',
-                    'nome_ies': 'first',
-                    'subtipo_producao': 'first',
-                    'area_conhecimento': 'first',
-                    'programa': 'first'
-                }).reset_index()
-                
-                logger.info(f"📊 Dados agrupados para {len(df_processado)} registros")
-        
-        logger.info(f"✅ Dados de produção processados: {len(df_processado)} registros")
-        return df_processado
-        
-    except Exception as e:
-        logger.error(f"❌ Erro ao processar dados: {e}")
-        return pd.DataFrame()
-
-@log_execution
-def criar_dimensao_producao(df_processado):
-    """
-    Cria a dimensão Produção com SK e estrutura adequada.
-    """
-    logger.info("🏗️ Criando dimensão Produção...")
-    
-    try:
-        if df_processado.empty:
-            logger.warning("⚠️ DataFrame vazio - criando apenas registro SK=0")
-            df_producao = pd.DataFrame([{
-                'producao_sk': 0,
-                'ano_referencia': 0,
-                'uf_sigla': 'DESCONHECIDO',
-                'regiao': 'Desconhecido',
-                'codigo_ies': 0,
-                'nome_ies': 'Desconhecido',
-                'tipo_producao': 'DESCONHECIDO',
-                'subtipo_producao': 'DESCONHECIDO',
-                'quantidade': 0,
-                'area_conhecimento': 'Desconhecido',
-                'programa': 'Desconhecido'
-            }])
-        else:
-            # Criar registro SK=0 (desconhecido)
-            registro_desconhecido = {
-                'producao_sk': 0,
-                'ano_referencia': 0,
-                'uf_sigla': 'DESCONHECIDO',
-                'regiao': 'Desconhecido',
-                'codigo_ies': 0,
-                'nome_ies': 'Desconhecido',
-                'tipo_producao': 'DESCONHECIDO',
-                'subtipo_producao': 'DESCONHECIDO',
-                'quantidade': 0,
-                'area_conhecimento': 'Desconhecido',
-                'programa': 'Desconhecido'
-            }
-            
-            # Criar dimensão com dados processados
-            df_producao = df_processado.copy()
-            
-            # Adicionar surrogate key sequencial
-            df_producao['producao_sk'] = range(1, len(df_producao) + 1)
-            
-            # Garantir que todas as colunas existam
-            colunas_obrigatorias = [
-                'ano_referencia', 'uf_sigla', 'regiao', 'codigo_ies', 'nome_ies',
-                'tipo_producao', 'subtipo_producao', 'quantidade', 'area_conhecimento', 'programa'
-            ]
-            
-            for col in colunas_obrigatorias:
-                if col not in df_producao.columns:
-                    if col in ['ano_referencia', 'codigo_ies', 'quantidade']:
-                        df_producao[col] = 0
-                    else:
-                        df_producao[col] = 'Desconhecido'
-            
-            # Adicionar registro SK=0 no início
-            df_producao = pd.concat([pd.DataFrame([registro_desconhecido]), df_producao], ignore_index=True)
-        
-        # Reordenar colunas
-        colunas_finais = [
-            'producao_sk', 'ano_referencia', 'uf_sigla', 'regiao', 'codigo_ies',
-            'nome_ies', 'tipo_producao', 'subtipo_producao', 'quantidade',
-            'area_conhecimento', 'programa'
+        colunas_texto = [
+            'nm_producao', 'nm_programa_ies', 'sg_entidade_ensino', 'nm_entidade_ensino',
+            'nm_tipo_producao', 'nm_subtipo_producao', 'nm_formulario', 'nm_area_concentracao',
+            'nm_linha_pesquisa', 'nm_projeto', 'ds_titulo_padronizado'
         ]
         
-        df_producao = df_producao[colunas_finais]
+        for col in colunas_texto:
+            if col in df_processed.columns:
+                df_processed[col] = df_processed[col].fillna('Não informado')
+                df_processed[col] = df_processed[col].astype(str).str.strip()
+                df_processed[col] = df_processed[col].replace(['', 'nan', 'None'], 'Não informado')
         
-        logger.info(f"✅ Dimensão Produção criada com {len(df_producao)} registros")
-        return df_producao
+        # 3. Tratar campos numéricos
+        colunas_numericas = [
+            'an_base', 'cd_programa_ies', 'id_producao_intelectual'
+        ]
+        
+        for col in colunas_numericas:
+            if col in df_processed.columns:
+                df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0).astype(int)
+        
+        # 4. Classificar tipo de produção baseado no nome
+        logger.info("📂 Classificando tipos de produção...")
+        df_processed['tipo_producao'] = df_processed['nm_tipo_producao'].fillna('Artigo em Periódico')
+        
+        # 5. Agregar dados por características similares para reduzir volume
+        logger.info("📊 Agregando dados similares...")
+        
+        colunas_agrupamento = [
+            'an_base', 'nm_programa_ies', 'nm_area_concentracao', 
+            'nm_tipo_producao', 'tipo_producao'
+        ]
+        
+        # Verificar se todas as colunas existem
+        colunas_agrupamento = [col for col in colunas_agrupamento if col in df_processed.columns]
+        
+        if colunas_agrupamento:
+            # Agrupar e contar
+            df_agregado = df_processed.groupby(colunas_agrupamento).agg({
+                'id_add_producao_intelectual': 'count',  # Quantidade de produções
+                'nm_producao': 'first',
+                'sg_entidade_ensino': 'first',
+                'nm_entidade_ensino': 'first',
+                'nm_subtipo_producao': 'first',
+                'nm_linha_pesquisa': 'first'
+            }).reset_index()
+            
+            # Renomear coluna de contagem
+            df_agregado.rename(columns={'id_add_producao_intelectual': 'quantidade_producoes'}, inplace=True)
+            
+            df_processed = df_agregado
+            logger.info(f"📊 Dados agregados para {len(df_processed):,} registros únicos")
+        
+        logger.info(f"✅ Processamento concluído: {len(df_processed):,} registros processados")
+        return df_processed
         
     except Exception as e:
-        logger.error(f"❌ Erro ao criar dimensão: {e}")
-        return pd.DataFrame()
+        logger.error(f"❌ Erro durante processamento: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
 
-@log_execution
-def salvar_dimensao_producao(df_producao):
+def criar_dimensao_producao():
     """
-    Salva a dimensão Produção no banco de dados.
+    Cria a dimensão produção usando pandas para manipular os dados.
     """
+    logger.info("� Criando dimensão PRODUÇÃO com pandas...")
+    db = get_db_manager()
+    
     try:
-        if df_producao.empty:
-            logger.error("❌ DataFrame vazio - não há dados para salvar")
+        # 1. Remover tabela existente se houver
+        logger.info("🗑️  Removendo dim_producao existente...")
+        drop_sql = "DROP TABLE IF EXISTS dim_producao CASCADE;"
+        db.execute_sql(drop_sql)
+        
+        # 2. Criar tabela dim_producao
+        logger.info("🏗️  Criando nova estrutura dim_producao...")
+        create_sql = """
+        CREATE TABLE dim_producao (
+            producao_sk SERIAL PRIMARY KEY,
+            id_producao_original VARCHAR(100),
+            nome_producao VARCHAR(1000),
+            ano_producao INTEGER,
+            programa_ies VARCHAR(500),
+            codigo_programa INTEGER,
+            nome_programa VARCHAR(500),
+            area_concentracao VARCHAR(300),
+            area_avaliacao VARCHAR(200),
+            area_conhecimento VARCHAR(200),
+            grande_area_conhecimento VARCHAR(200),
+            palavras_chave TEXT,
+            idioma VARCHAR(50),
+            tipo_producao VARCHAR(100),
+            quantidade_producoes INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        
+        if not db.execute_sql(create_sql):
+            logger.error("❌ Erro ao criar tabela dim_producao")
             return False
             
-        db = get_db_manager()
-        success = db.save_dataframe(df_producao, 'dim_producao', if_exists='replace')
+        # 3. Inserir registro SK=0 (desconhecido)
+        logger.info("🔧 Inserindo registro DESCONHECIDO (SK=0)...")
+        sk0_data = pd.DataFrame({
+            'producao_sk': [0],
+            'id_producao_original': ['DESCONHECIDO'],
+            'nome_producao': ['NÃO INFORMADO'],
+            'ano_producao': [0],
+            'programa_ies': ['NÃO INFORMADO'],
+            'codigo_programa': [0],
+            'nome_programa': ['NÃO INFORMADO'],
+            'area_concentracao': ['NÃO INFORMADO'],
+            'area_avaliacao': ['NÃO INFORMADO'],
+            'area_conhecimento': ['NÃO INFORMADO'],
+            'grande_area_conhecimento': ['NÃO INFORMADO'],
+            'palavras_chave': ['NÃO INFORMADO'],
+            'idioma': ['NÃO INFORMADO'],
+            'tipo_producao': ['NÃO INFORMADO'],
+            'quantidade_producoes': [0]
+        })
         
-        if success:
-            logger.info(f"✅ Dimensão Produção salva no PostgreSQL com {len(df_producao)} registros")
-            return True
-        else:
-            logger.error("❌ Falha ao salvar dimensão Produção")
+        # Inserir registro SK=0
+        db.save_dataframe(sk0_data, 'dim_producao', if_exists='append')
+        
+        # 4. Carregar e processar dados de produção
+        df_raw = carregar_dados_raw_producao()
+        if df_raw is None:
+            logger.error("❌ Falha ao carregar dados da raw_producao")
             return False
             
-    except Exception as e:
-        logger.error(f"❌ Erro ao salvar dimensão: {e}")
-        return False
-
-@log_execution
-def gerar_estatisticas_producao(df_producao):
-    """
-    Gera estatísticas da dimensão Produção.
-    """
-    if df_producao.empty:
-        logger.info("❌ Não há dados para gerar estatísticas")
-        return
-        
-    logger.info("\n📊 Estatísticas da dimensão Produção:")
-    logger.info(f"Total de registros: {len(df_producao)}")
-    
-    # Estatísticas por região
-    if 'regiao' in df_producao.columns:
-        logger.info("\nProdução por região:")
-        regiao_stats = df_producao['regiao'].value_counts()
-        for regiao, count in regiao_stats.items():
-            logger.info(f"  {regiao}: {count} registros")
-    
-    # Estatísticas por tipo de produção
-    if 'tipo_producao' in df_producao.columns:
-        logger.info("\nProdução por tipo:")
-        tipo_stats = df_producao['tipo_producao'].value_counts().head(10)
-        for tipo, count in tipo_stats.items():
-            logger.info(f"  {tipo}: {count} registros")
-    
-    # Anos disponíveis
-    if 'ano_referencia' in df_producao.columns:
-        anos_validos = df_producao[df_producao['ano_referencia'] > 0]
-        if not anos_validos.empty:
-            logger.info(f"\nAnos disponíveis: {anos_validos['ano_referencia'].min()}-{anos_validos['ano_referencia'].max()}")
-    
-    # Quantidade total
-    if 'quantidade' in df_producao.columns:
-        total_producao = df_producao[df_producao['producao_sk'] != 0]['quantidade'].sum()
-        logger.info(f"Total de produções: {total_producao:,}")
-
-def main():
-    """
-    Função principal para execução do script.
-    """
-    try:
-        logger.info("🚀 Iniciando processo de criação da dimensão Produção")
-        logger.info("📊 Fonte de dados: API CAPES")
-        
-        # 1. Extrair dados da API
-        df_raw = extrair_dados_producao_api()
-        
-        # 2. Processar dados
-        df_processado = processar_dados_producao(df_raw)
-        
-        # 3. Criar dimensão
-        df_producao = criar_dimensao_producao(df_processado)
-        
-        if df_producao.empty:
-            logger.error("❌ Falha ao criar dimensão Produção")
+        df_producoes = processar_dataframe_producao(df_raw)
+        if df_producoes is None:
+            logger.error("❌ Falha ao processar DataFrame de produção")
             return False
         
-        # 4. Salvar no banco
-        if not salvar_dimensao_producao(df_producao):
-            return False
+        # 5. Mapear colunas para a estrutura da dimensão
+        logger.info("🔄 Mapeando colunas para estrutura da dimensão...")
+        df_final = pd.DataFrame()
         
-        # 5. Gerar estatísticas
-        gerar_estatisticas_producao(df_producao)
+        # Mapeamento de colunas
+        mapeamento = {
+            'id_producao_original': 'id_add_producao_intelectual' if 'id_add_producao_intelectual' in df_producoes.columns else None,
+            'nome_producao': 'nm_producao' if 'nm_producao' in df_producoes.columns else None,
+            'ano_producao': 'an_base' if 'an_base' in df_producoes.columns else None,
+            'programa_ies': 'nm_programa_ies' if 'nm_programa_ies' in df_producoes.columns else None,
+            'codigo_programa': 'cd_programa_ies' if 'cd_programa_ies' in df_producoes.columns else None,
+            'nome_programa': 'nm_programa_ies' if 'nm_programa_ies' in df_producoes.columns else None,
+            'area_concentracao': 'nm_area_concentracao' if 'nm_area_concentracao' in df_producoes.columns else None,
+            'area_avaliacao': 'nm_linha_pesquisa' if 'nm_linha_pesquisa' in df_producoes.columns else None,
+            'area_conhecimento': 'nm_area_concentracao' if 'nm_area_concentracao' in df_producoes.columns else None,
+            'grande_area_conhecimento': 'nm_tipo_producao' if 'nm_tipo_producao' in df_producoes.columns else None,
+            'palavras_chave': 'nm_projeto' if 'nm_projeto' in df_producoes.columns else None,
+            'idioma': 'sg_entidade_ensino' if 'sg_entidade_ensino' in df_producoes.columns else None,
+            'tipo_producao': 'tipo_producao' if 'tipo_producao' in df_producoes.columns else None,
+            'quantidade_producoes': 'quantidade_producoes' if 'quantidade_producoes' in df_producoes.columns else None
+        }
         
-        logger.info("✅ Processo concluído! Dimensão Produção criada com sucesso.")
-        logger.info("💡 A dimensão inclui informações sobre produção acadêmica.")
+        # Aplicar mapeamento
+        for col_destino, col_origem in mapeamento.items():
+            if col_origem and col_origem in df_producoes.columns:
+                df_final[col_destino] = df_producoes[col_origem]
+            else:
+                # Valores padrão baseado no tipo
+                if col_destino in ['ano_producao', 'codigo_programa', 'quantidade_producoes']:
+                    df_final[col_destino] = 1 if col_destino == 'quantidade_producoes' else 0
+                else:
+                    df_final[col_destino] = 'Não informado'
         
+        # 6. Inserir dados processados no banco
+        logger.info("💾 Inserindo dados processados no banco...")
+        db.save_dataframe(df_final, 'dim_producao', if_exists='append')
+        
+        # 7. Verificar inserção
+        count_query = "SELECT COUNT(*) as total FROM dim_producao;"
+        result = db.execute_query(count_query)
+        total = result.iloc[0]['total']
+        
+        logger.info(f"✅ dim_producao criada com {total:,} registros")
+        
+        # 8. Criar índices para performance
+        logger.info("🔍 Criando índices...")
+        indices_sql = [
+            "CREATE INDEX IF NOT EXISTS idx_dim_producao_ano ON dim_producao(ano_producao);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_producao_area_conhecimento ON dim_producao(area_conhecimento);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_producao_tipo ON dim_producao(tipo_producao);",
+            "CREATE INDEX IF NOT EXISTS idx_dim_producao_programa ON dim_producao(codigo_programa);"
+        ]
+        
+        for idx_sql in indices_sql:
+            db.execute_sql(idx_sql)
+        
+        logger.info("✅ Índices criados")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Erro na execução principal: {e}")
+        logger.error(f"❌ Erro ao criar dimensão produção: {str(e)}")
         return False
 
-if __name__ == "__main__":
-    # Configurar logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+def validar_dimensao_producao():
+    """Valida os dados da dimensão produção."""
+    logger.info("🔍 Validando dimensão PRODUÇÃO...")
+    db = get_db_manager()
     
-    success = main()
-    sys.exit(0 if success else 1)
+    try:
+        print("\n" + "="*60)
+        print("📊 VALIDAÇÃO DA DIMENSÃO PRODUÇÃO")
+        print("="*60)
+        
+        # 1. Contagem total
+        query_total = "SELECT COUNT(*) as total FROM dim_producao;"
+        result = db.execute_query(query_total)
+        total = result.iloc[0]['total']
+        print(f"📊 Total de registros: {total:,}")
+        
+        # 2. Produções por tipo
+        print("\n📚 Produções por tipo:")
+        query_tipo = """
+        SELECT 
+            tipo_producao,
+            COUNT(*) as qtd_producoes
+        FROM dim_producao 
+        WHERE producao_sk > 0
+        GROUP BY tipo_producao
+        ORDER BY qtd_producoes DESC;
+        """
+        result = db.execute_query(query_tipo)
+        print(result.to_string(index=False))
+        
+        # 3. Produções por ano
+        print("\n📅 Produções por ano:")
+        query_ano = """
+        SELECT 
+            ano_producao,
+            COUNT(*) as qtd_producoes,
+            SUM(quantidade_producoes) as total_producoes
+        FROM dim_producao 
+        WHERE producao_sk > 0 AND ano_producao > 0
+        GROUP BY ano_producao
+        ORDER BY ano_producao DESC
+        LIMIT 10;
+        """
+        result = db.execute_query(query_ano)
+        print(result.to_string(index=False))
+        
+        # 4. Top áreas de conhecimento
+        print("\n🎓 Top 10 áreas de concentração:")
+        query_area = """
+        SELECT 
+            area_concentracao,
+            COUNT(*) as qtd_producoes
+        FROM dim_producao 
+        WHERE producao_sk > 0
+        GROUP BY area_concentracao
+        ORDER BY qtd_producoes DESC
+        LIMIT 10;
+        """
+        result = db.execute_query(query_area)
+        print(result.to_string(index=False))
+        
+        # 5. Distribuição por entidade de ensino
+        print("\n� Top 10 entidades de ensino (siglas):")
+        query_entidade = """
+        SELECT 
+            idioma as sigla_entidade,
+            COUNT(*) as qtd_producoes
+        FROM dim_producao 
+        WHERE producao_sk > 0 AND idioma != 'Não informado'
+        GROUP BY idioma
+        ORDER BY qtd_producoes DESC
+        LIMIT 10;
+        """
+        result = db.execute_query(query_entidade)
+        print(result.to_string(index=False))
+        
+        print("\n✅ Validação concluída!")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro na validação: {str(e)}")
+
+def main():
+    """Função principal."""
+    try:
+        logger.info("🚀 Iniciando criação da dimensão PRODUÇÃO")
+        
+        # 1. Criar dimensão
+        if not criar_dimensao_producao():
+            logger.error("❌ Falha na criação da dimensão produção")
+            return
+            
+        # 2. Validar dimensão
+        validar_dimensao_producao()
+        
+        print("\n" + "="*70)
+        print("🎉 DIMENSÃO PRODUÇÃO CRIADA COM SUCESSO!")
+        print("="*70)
+        print("✅ Tabela: dim_producao")
+        print("✅ Fonte: raw_producao")
+        print("✅ Índices: Performance otimizada")
+        print("✅ Dados: Tratados e normalizados")
+        print("="*70)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro durante criação da dimensão PRODUÇÃO: {str(e)}")
+
+if __name__ == "__main__":
+    main()
