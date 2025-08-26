@@ -131,6 +131,26 @@ erDiagram
         string pais_publicacao "País de publicação"
     }
 
+    raw_pq {
+        integer id PK "ID sequencial original"
+        integer id_lattes "ID Lattes do beneficiário"
+        string des_beneficiario "Nome do beneficiário PQ"
+        string des_pais "País (Brasil)"
+        string des_regiao "Região geográfica"
+        string des_uf "Estado (sigla)"
+        string des_cidade "Município"
+        string des_grande_area "Grande área do conhecimento"
+        string des_area "Área do conhecimento"
+        string des_subarea "Subárea do conhecimento"
+        string cod_modalidade "Modalidade (PQ)"
+        string cod_categoria_nivel "Categoria/Nível (1A, 1B, 1C, 1D, 2, SR)"
+        string des_instituto "Instituição original completa"
+        string des_instituicao_nome "Nome da instituição (separado)"
+        string des_instituicao_sigla "Sigla da instituição (separado)"
+        timestamp data_inicio_processo "Data início do processo"
+        timestamp data_termino_processo "Data término do processo"
+    }
+
     %% =============================================
     %% RELACIONAMENTOS LÓGICOS
     %% (Baseados nos campos em comum para ETL)
@@ -141,16 +161,24 @@ erDiagram
     raw_ies_api ||--o{ raw_ppg : "sg_uf_programa = sigla_uf_programa"
     raw_ies_api ||--o{ raw_docente : "sg_uf_programa = sg_uf_programa"
     raw_ies_api ||--o{ raw_producao : "sg_uf_programa = sg_uf_programa"
+    raw_ies_api ||--o{ raw_pq : "sg_uf_programa = des_uf"
 
-    %% Relacionamentos por IES
+    %% Relacionamentos por IES/Instituição
     raw_ies_api ||--o{ raw_ppg : "des_entidade_ensino = nome_ies"
     raw_ies_api ||--o{ raw_docente : "des_entidade_ensino = des_entidade_ensino"
     raw_ies_api ||--o{ raw_producao : "des_entidade_ensino = des_entidade_ensino"
+    raw_ies_api ||--o{ raw_pq : "des_entidade_ensino = des_instituicao_nome"
 
     %% Relacionamentos por Programa
     raw_ies_api ||--o{ raw_ppg : "cod_programa_ies = codigo_programa_ies"
     raw_ppg ||--o{ raw_docente : "cod_programa_ies = cod_programa_ies"
     raw_ppg ||--o{ raw_producao : "cod_programa_ies = cod_programa_ies"
+
+    %% Relacionamentos por Grande Área
+    raw_ies_api ||--o{ raw_docente : "des_grande_area_conhecimento = des_grande_area_conhecimento"
+    raw_ies_api ||--o{ raw_producao : "des_grande_area_conhecimento = des_grande_area_conhecimento"  
+    raw_ies_api ||--o{ raw_pq : "des_grande_area_conhecimento = des_grande_area"
+    raw_ppg ||--o{ raw_pq : "grande_area_ppg = des_grande_area"
 
     %% =============================================
     %% NOTAS TÉCNICAS
@@ -159,9 +187,17 @@ erDiagram
         note: "Tabelas Raw - Dados Brutos Padronizados"
         note: "• raw_ies_api: 3,568 registros (API CAPES IES)"
         note: "• raw_tema: 5,987 registros (Excel + desnormalização)"
-        note: "• raw_ppg: Programas pós-graduação (CSV 2024)"
-        note: "• raw_docente: ~100k+ docentes (CSV CAPES)"
+        note: "• raw_ppg: 4,635 registros (CSV 2024)"
+        note: "• raw_pq: 16,195 registros (CSV Produtividade Pesquisa)"
+        note: "• raw_docente: ~330k+ registros (CSV CAPES)"
         note: "• raw_producao: Artigos periódicos (API CAPES)"
+        note: ""
+        note: "✨ Melhorias RAW_PQ:"
+        note: "• Separação inteligente de instituições"
+        note: "• des_instituto → des_instituicao_nome + des_instituicao_sigla"
+        note: "• Taxa de sucesso: 100% (correção automática)"
+        note: "• Padrões regex multi-tier para siglas complexas"
+        note: "• Casos especiais: PUC-Rio, IF Goiano, MACKENZIE, etc."
         note: ""
         note: "Padronização Aplicada:"
         note: "• codigo → cod"
@@ -173,9 +209,11 @@ erDiagram
         note: "• Snake_case, sem acentos"
         note: ""
         note: "Relacionamentos para ETL:"
-        note: "• Por UF (sg_uf_programa, uf, sigla_uf_programa)"
-        note: "• Por IES (des_entidade_ensino, nome_ies)"
+        note: "• Por UF (sg_uf_programa, uf, sigla_uf_programa, des_uf)"
+        note: "• Por IES (des_entidade_ensino, nome_ies, des_instituicao_nome)"
         note: "• Por Programa (cod_programa_ies, codigo_programa_ies)"
         note: "• Por Região (des_regiao, nome_regiao, regiao)"
+        note: "• Por Grande Área (des_grande_area_conhecimento, des_grande_area)"
+        note: "• Por ID Lattes (raw_pq.id_lattes para cruzamento com docentes)"
     %%}
 ```

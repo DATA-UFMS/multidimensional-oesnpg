@@ -1,103 +1,136 @@
 #!/usr/bin/env python3
 """
-Script simplificado para criar tabela raw_docente.
-Lê dad    print(f"Dados processados: {len(df)} registros")
-    
-    # Salvar no banco usando pandas to_sql
-    print("Salvando no PostgreSQL...")rutos do CSV de docentes e salva no PostgreSQL.
+Script para criação da tabela raw_docente.
+Extrai dados de docentes da API CAPES e arquivos CSV.
 """
 
 import pandas as pd
-from sqlalchemy import create_engine
 import os
-from dotenv import load_dotenv
+from base_raw import CAPESApiExtractor, DatabaseManager, DataQualityAnalyzer, DataCleaner, print_header, print_status, print_summary
 
-# Configuração do banco via .env
-load_dotenv()
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME") 
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_PORT = os.getenv("DB_PORT")
+# Resource ID da API CAPES para docentes
+DOCENTE_RESOURCE_ID = '7d9547c8-9a0d-433a-b2c8-ee9fbbdc5b3a'
 
-# Caminho para o arquivo CSV (absoluto)
-import os
-script_dir = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH = os.path.join(script_dir, '..', 'data', 'br-capes-colsucup-docente-2021-2025-03-31.csv')
+def load_docente_api_data():
+    """Carrega dados de docentes da API CAPES"""
+    print_status("Extraindo dados de docentes da API CAPES...")
+    
+    extractor = CAPESApiExtractor()
+    df = extractor.fetch_all_data(DOCENTE_RESOURCE_ID)
+    
+    if not df.empty:
+        df['fonte_dados'] = 'API_CAPES'
+        print_status(f"API CAPES: {len(df):,} registros extraídos", "success")
+    
+    return df
+
+def load_docente_csv_data():
+    """Carrega dados de docentes de arquivo CSV local"""
+    print_status("Carregando dados de docentes de arquivo CSV...")
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(script_dir, '..', 'data')
+    csv_path = os.path.join(data_dir, 'br-capes-colsucup-docente-2021-2025-03-31.csv')
+    
+    if not os.path.exists(csv_path):
+        print_status(f"Arquivo CSV não encontrado: {os.path.basename(csv_path)}", "warning")
+        return pd.DataFrame()
+    
+    try:
+        # Tentar diferentes encodings
+        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+            try:
+                df = pd.read_csv(csv_path, encoding=encoding)
+                df['fonte_dados'] = 'CSV_LOCAL'
+                print_status(f"CSV local: {len(df):,} registros carregados", "success")
+                return df
+            except UnicodeDecodeError:
+                continue
+        
+        print_status("Erro: não foi possível decodificar o arquivo CSV", "error")
+        return pd.DataFrame()
+        
+    except Exception as e:
+        print_status(f"Erro ao carregar CSV: {e}", "error")
+        return pd.DataFrame()
+
+def transform_docente_data(df):
+    """Transforma dados de docentes"""
+    print_status("Transformando dados de docentes...")
+    
+    # Aplicar limpeza básica
+    df = DataCleaner.clean_dataframe(df)
+    
+    # Padronizar campos específicos de docentes
+    docente_field_mapping = {
+        'nm_docente': 'des_docente_nome',
+        'nm_pessoa': 'des_docente_nome',
+        'id_lattes': 'id_lattes',
+        'id_pessoa': 'id_pessoa_capes',
+        'nm_programa': 'des_programa',
+        'nm_ies': 'des_ies',
+        'sg_uf_ies': 'sg_uf',
+        'nm_regiao': 'des_regiao',
+        'nm_area_avaliacao': 'des_area_avaliacao',
+        'cd_programa': 'cod_programa',
+        'cd_ies': 'cod_ies'
+    }
+    
+    for old_col, new_col in docente_field_mapping.items():
+        matching_cols = [col for col in df.columns if old_col in col.lower()]
+        if matching_cols:
+            df[new_col] = df[matching_cols[0]]
+    
+    # Limpar e padronizar ID Lattes
+    if 'id_lattes' in df.columns:
+        df['id_lattes'] = df['id_lattes'].astype(str).str.replace(r'[^\d]', '', regex=True)
+        df.loc[df['id_lattes'].str.len() == 0, 'id_lattes'] = None
+    
+    # Criar ID único se não existir
+    if 'id_docente' not in df.columns and 'id_pessoa_capes' in df.columns:
+        df['id_docente'] = df['id_pessoa_capes']
+    elif 'id_docente' not in df.columns:
+        df['id_docente'] = range(1, len(df) + 1)
+    
+    return df
 
 def main():
-    print("CRIANDO TABELA RAW_DOCENTE")
-    print("=" * 50)
+    print_header("Criando Tabela RAW_DOCENTE")
     
-    # Carregar dados
-    print("📥 Carregando dados do CSV...")
+    all_data = []
     
-    # Tentar diferentes encodings
-    encodings = ['latin1', 'iso-8859-1', 'cp1252', 'utf-8']
-    df = None
+    # Carregar dados da API
+    df_api = load_docente_api_data()
+    if not df_api.empty:
+        all_data.append(df_api)
     
-    for encoding in encodings:
-        try:
-            df = pd.read_csv(CSV_PATH, sep=';', encoding=encoding)
-            print(f"✅ CSV carregado com encoding: {encoding}")
-            break
-        except (UnicodeDecodeError, FileNotFoundError):
-            continue
+    # Carregar dados de CSV
+    df_csv = load_docente_csv_data()
+    if not df_csv.empty:
+        all_data.append(df_csv)
     
-    if df is None:
-        print(f"❌ Não foi possível carregar o CSV: {CSV_PATH}")
-        print(f"📁 Arquivo existe? {os.path.exists(CSV_PATH)}")
+    if not all_data:
+        print_status("Nenhum dado carregado. Processo encerrado.", "error")
         return
     
-    # Remover colunas com valores todos nulos
-    df = df.dropna(axis=1, how='all')
+    # Consolidar todos os dados
+    df_consolidated = pd.concat(all_data, ignore_index=True)
+    print_status(f"Dados consolidados: {len(df_consolidated):,} registros")
     
-    # Ajustar nomes das colunas para padrão snake_case e aplicar regras de padronização
-    df.columns = df.columns.str.strip().str.lower().str.replace('-', '_').str.replace(' ', '_').str.replace('(', '').str.replace(')', '').str.replace('.', '').str.replace('/', '_').str.replace('ã', 'a').str.replace('ç', 'c').str.replace('á', 'a').str.replace('é', 'e').str.replace('í', 'i').str.replace('ó', 'o').str.replace('ú', 'u')
+    # Transformar dados
+    df_transformed = transform_docente_data(df_consolidated)
     
-    # Aplicar regras de padronização: cod para códigos, des_ para nomes, qtd para quantidade
-    colunas_renomeadas = {}
-    for col in df.columns:
-        nova_col = col
-        # Trocar codigo por cod
-        if 'codigo' in nova_col:
-            nova_col = nova_col.replace('codigo', 'cod')
-        # Trocar nome_ por des_
-        if nova_col.startswith('nome_'):
-            nova_col = nova_col.replace('nome_', 'des_')
-        elif '_nome' in nova_col:
-            nova_col = nova_col.replace('_nome', '')
-        # Trocar quantidade por qtd
-        if 'quantidade' in nova_col:
-            nova_col = nova_col.replace('quantidade', 'qtd')
-        if nova_col != col:
-            colunas_renomeadas[col] = nova_col
+    # Analisar qualidade
+    DataQualityAnalyzer.analyze_dataframe(df_transformed, "RAW_DOCENTE")
     
-    if colunas_renomeadas:
-        df = df.rename(columns=colunas_renomeadas)
-        print(f"Colunas renomeadas: {len(colunas_renomeadas)} alterações")
+    # Salvar no banco
+    db = DatabaseManager()
+    success = db.save_dataframe(df_transformed, 'raw_docente')
     
-    # Limpar strings
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            df[col] = df[col].astype(str).str.strip()
-    
-    # Remover duplicatas
-    df = df.drop_duplicates()
-    
-    print(f"📊 Dados processados: {len(df)} registros")
-    
-    # Salvar no banco usando pandas to_sql
-    print("� Salvando no PostgreSQL...")
-    
-    # Criar conexão SQLAlchemy para usar com to_sql
-    engine = create_engine(f'postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
-    
-    # Usar to_sql do pandas
-    df.to_sql('raw_docente', engine, if_exists='replace', index=False, method='multi')
-    
-    print(f"✅ Tabela raw_docente criada com {len(df)} registros")
-    print(f"🎉 Processo concluído!")
+    if success:
+        print_summary(len(df_transformed), 'raw_docente')
+    else:
+        print_status("Falha ao salvar dados no banco", "error")
 
 if __name__ == "__main__":
     main()

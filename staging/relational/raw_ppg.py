@@ -1,114 +1,109 @@
 #!/usr/bin/env python3
 """
-Script simplificado para criar tabela raw_ppg.
-Lê dados brutos do CSV de programas de pós-graduação e salva no PostgreSQL.
+Script para criação da tabela raw_ppg.
+Processa dados de Programas de Pós-Graduação do arquivo CSV.
 """
 
 import pandas as pd
-from sqlalchemy import create_engine
 import os
-from dotenv import load_dotenv
+from base_raw import DatabaseManager, DataQualityAnalyzer, DataCleaner, print_header, print_status, print_summary
 
-# Configuração do banco via .env
-load_dotenv()
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME") 
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_PORT = os.getenv("DB_PORT")
-
-# Caminho para o arquivo CSV (absoluto)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH = os.path.join(script_dir, '..', 'data', 'ppg_2024.csv')
-
-def main():
-    print("CRIANDO TABELA RAW_PPG")
-    print("=" * 50)
+def load_ppg_data():
+    """Carrega dados do arquivo CSV de PPG"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(script_dir, '..', 'data')
+    csv_path = os.path.join(data_dir, 'ppg_2024.csv')
     
-    # Carregar dados
-    print("Carregando dados do CSV...")
+    print_status(f"Carregando arquivo: {os.path.basename(csv_path)}")
     
-    if not os.path.exists(CSV_PATH):
-        print(f"❌ Arquivo CSV não encontrado: {CSV_PATH}")
-        return
-    
-    # Tentar diferentes encodings e separadores
-    encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
-    separators = [',', ';', '\t']
-    df = None
-    
-    for encoding in encodings:
-        for sep in separators:
-            try:
-                df = pd.read_csv(CSV_PATH, sep=sep, encoding=encoding)
-                # Verificar se carregou dados válidos (mais de 1 coluna)
-                if len(df.columns) > 1 and len(df) > 0:
-                    print(f"✅ CSV carregado com encoding: {encoding}, separador: '{sep}'")
-                    break
-            except (UnicodeDecodeError, pd.errors.EmptyDataError, pd.errors.ParserError):
-                continue
-        if df is not None and len(df.columns) > 1:
-            break
-    
-    if df is None or len(df.columns) <= 1:
-        print("❌ Não foi possível carregar o CSV com nenhum encoding/separador testado")
-        return
-    
-    print(f"Dados brutos carregados: {len(df)} registros")
-    
-    # Remover colunas com valores todos nulos
-    df = df.dropna(axis=1, how='all')
-    
-    # Ajustar nomes das colunas para padrão snake_case e aplicar regras de padronização
-    df.columns = df.columns.str.strip().str.lower().str.replace('-', '_').str.replace(' ', '_').str.replace('(', '').str.replace(')', '').str.replace('.', '').str.replace('/', '_').str.replace('ã', 'a').str.replace('ç', 'c').str.replace('á', 'a').str.replace('é', 'e').str.replace('í', 'i').str.replace('ó', 'o').str.replace('ú', 'u')
-    
-    # Aplicar regras de padronização: cod para códigos, des_ para nomes, qtd para quantidade
-    colunas_renomeadas = {}
-    for col in df.columns:
-        nova_col = col
-        # Trocar codigo por cod
-        if 'codigo' in nova_col:
-            nova_col = nova_col.replace('codigo', 'cod')
-        # Trocar nome_ por des_
-        if nova_col.startswith('nome_'):
-            nova_col = nova_col.replace('nome_', 'des_')
-        elif '_nome' in nova_col:
-            nova_col = nova_col.replace('_nome', '_des')
-        # Trocar quantidade por qtd
-        if 'quantidade' in nova_col:
-            nova_col = nova_col.replace('quantidade', 'qtd')
-        if nova_col != col:
-            colunas_renomeadas[col] = nova_col
-    
-    if colunas_renomeadas:
-        df = df.rename(columns=colunas_renomeadas)
-        print(f"Colunas renomeadas: {len(colunas_renomeadas)} alterações")
-    
-    # Limpar strings
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            df[col] = df[col].astype(str).str.strip()
-    
-    # Remover duplicatas
-    print(f"Registros antes de remover duplicatas: {len(df)}")
-    df = df.drop_duplicates()
-    print(f"Registros após remover duplicatas: {len(df)}")
-    
-    # Salvar no PostgreSQL
-    print("Salvando no PostgreSQL...")
+    if not os.path.exists(csv_path):
+        print_status(f"Arquivo não encontrado: {csv_path}", "error")
+        return pd.DataFrame()
     
     try:
-        engine = create_engine(f'postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
-        df.to_sql('raw_ppg', engine, if_exists='replace', index=False, method='multi')
-        print(f"✅ Tabela raw_ppg criada com {len(df)} registros")
+        # Tentar diferentes encodings e separadores
+        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+            try:
+                # Primeiro tentar com separador padrão
+                df = pd.read_csv(csv_path, encoding=encoding)
+                print_status(f"Dados carregados com encoding {encoding}: {len(df):,} registros")
+                return df
+            except Exception:
+                # Tentar com separador ; 
+                try:
+                    df = pd.read_csv(csv_path, encoding=encoding, sep=';')
+                    print_status(f"Dados carregados com encoding {encoding} e sep=';': {len(df):,} registros")
+                    return df
+                except Exception:
+                    continue
         
-        # Mostrar primeiras colunas
-        print(f"Colunas principais: {list(df.columns)[:10]}")
-        print(f"Total de colunas: {len(df.columns)}")
+        print_status("Erro: não foi possível decodificar o arquivo com os encodings testados", "error")
+        return pd.DataFrame()
         
     except Exception as e:
-        print(f"❌ Erro ao salvar no PostgreSQL: {e}")
+        print_status(f"Erro ao carregar arquivo: {e}", "error")
+        return pd.DataFrame()
+
+def transform_ppg_data(df):
+    """Transforma dados de PPG"""
+    print_status("Transformando dados de PPG...")
+    
+    # Aplicar limpeza básica
+    df = DataCleaner.clean_dataframe(df)
+    
+    # Padronizar campos específicos de PPG
+    ppg_field_mapping = {
+        'nm_programa': 'des_programa',
+        'nm_ies': 'des_ies', 
+        'sg_uf': 'sg_uf_programa',
+        'nm_regiao': 'des_regiao',
+        'nm_area_avaliacao': 'des_area_avaliacao',
+        'nm_area_basica': 'des_area_basica',
+        'cd_programa': 'cod_programa',
+        'cd_ies': 'cod_ies',
+        'nota_avaliacao': 'nota_capes'
+    }
+    
+    for old_col, new_col in ppg_field_mapping.items():
+        matching_cols = [col for col in df.columns if old_col in col.lower()]
+        if matching_cols:
+            df[new_col] = df[matching_cols[0]]
+    
+    # Converter nota CAPES para numérico
+    if 'nota_capes' in df.columns:
+        df['nota_capes'] = pd.to_numeric(df['nota_capes'], errors='coerce')
+    
+    # Criar ID único se não existir
+    if 'id_ppg' not in df.columns and 'cod_programa' in df.columns:
+        df['id_ppg'] = df['cod_programa']
+    elif 'id_ppg' not in df.columns:
+        df['id_ppg'] = range(1, len(df) + 1)
+    
+    return df
+
+def main():
+    print_header("Criando Tabela RAW_PPG")
+    
+    # Carregar dados
+    df = load_ppg_data()
+    if df.empty:
+        print_status("Nenhum dado carregado. Processo encerrado.", "error")
         return
+    
+    # Transformar dados
+    df_transformed = transform_ppg_data(df)
+    
+    # Analisar qualidade
+    DataQualityAnalyzer.analyze_dataframe(df_transformed, "RAW_PPG")
+    
+    # Salvar no banco
+    db = DatabaseManager()
+    success = db.save_dataframe(df_transformed, 'raw_ppg')
+    
+    if success:
+        print_summary(len(df_transformed), 'raw_ppg')
+    else:
+        print_status("Falha ao salvar dados no banco", "error")
 
 if __name__ == "__main__":
     main()

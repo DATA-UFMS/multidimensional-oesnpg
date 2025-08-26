@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🎓 DIMENSÃO PRODUÇÃO - Data Warehouse Observatório CAPES
+DIMENSÃO PRODUÇÃO - Data Warehouse Observatório CAPES
 =======================================================
 Cria a dimensão dim_producao baseada nos dados da raw_producao
 Estrutura: producao_sk, informações de produção acadêmica
@@ -75,7 +75,7 @@ def processar_dataframe_producao(df):
         logger.error("❌ DataFrame vazio ou None para processamento")
         return None
         
-    logger.info(f"🔄 Processando {len(df):,} registros de produção...")
+    logger.info(f"Processando {len(df):,} registros de produção...")
     
     try:
         # Fazer cópia para não alterar o original
@@ -83,10 +83,10 @@ def processar_dataframe_producao(df):
         
         # 1. Remover duplicatas baseado no id_add_producao_intelectual
         df_processed = df_processed.drop_duplicates(subset=['id_add_producao_intelectual'], keep='first')
-        logger.info(f"📊 Processando {len(df_processed):,} produções únicas (removidas {len(df) - len(df_processed):,} duplicatas)")
+        logger.info(f"Processando {len(df_processed):,} produções únicas (removidas {len(df) - len(df_processed):,} duplicatas)")
         
         # 2. Limpar e padronizar campos de texto
-        logger.info("🧹 Limpando e padronizando dados...")
+        logger.info("Limpando e padronizando dados...")
         
         colunas_texto = [
             'nm_producao', 'nm_programa_ies', 'sg_entidade_ensino', 'nm_entidade_ensino',
