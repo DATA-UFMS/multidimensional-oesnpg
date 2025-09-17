@@ -11,3 +11,4 @@ __pycache__/
 
 # Generated output files
 migrations/output/
+parquet_output/*
