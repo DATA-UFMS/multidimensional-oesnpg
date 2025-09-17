@@ -1,207 +1,230 @@
 #!/usr/bin/env python3
 """
-🎯 DIMENSÃO TEMA - Data Warehouse Observatório CAPES
-=======================================================
-Cria a dimensão dim_tema baseada nos dados da raw_tema
-Estrutura: tema_sk, uf, uf_sigla, tema_id (id da raw), tema, macrotema_id, macrotema, palavrachave
-Data: 18/08/2025
+Geração da Dimensão Tema (dim_tema) para Data Warehouse
+
+Este script processa dados da tabela raw_tema no PostgreSQL para criar uma dimensão 
+desnormalizada de temas. Realiza as seguintes transformações:
+
+1. Extrai registros únicos da tabela raw_tema (eliminando duplicatas por tema_id)
+2. Converte nomes de UF para siglas (ex: "SÃO PAULO" -> "SP")
+3. Adiciona registro SK=0 para valores desconhecidos/não aplicáveis
+4. Gera surrogate keys sequenciais (tema_sk) começando do 0
+5. Cria estrutura dimensional com tema_sk, tema_id, tema_nome, macrotema_id, macrotema_nome, sigla_uf
+6. Adiciona metadados de controle (created_at, updated_at)
+7. Salva resultado no PostgreSQL como tabela dim_tema
+
+Entrada: Tabela raw_tema (5.991 registros)
+Saída: Dimensão dim_tema (449 temas únicos, 20 macro temas, 27 UFs)
+
+Uso:
+    python dim_tema.py                    # Criar dimensão no PostgreSQL
+    python dim_tema.py --table custom     # Tabela customizada
 """
 
 import pandas as pd
 import os
-import sys
-from dotenv import load_dotenv
-import logging
+from pathlib import Path
+from sqlalchemy import create_engine, text
+import argparse
 
-# Adicionar diretório raiz ao path para imports
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.insert(0, project_root)
+def get_uf_mapping():
+    """Cria mapeamento de nome UF para sigla UF"""
+    uf_mapping = {
+        'ACRE': 'AC',
+        'ALAGOAS': 'AL', 
+        'AMAPÁ': 'AP',
+        'AMAZONAS': 'AM',
+        'BAHIA': 'BA',
+        'CEARÁ': 'CE',
+        'DISTRITO FEDERAL': 'DF',
+        'ESPÍRITO SANTO': 'ES',
+        'GOIÁS': 'GO',
+        'MARANHÃO': 'MA',
+        'MATO GROSSO': 'MT',
+        'MATO GROSSO DO SUL': 'MS',
+        'MINAS GERAIS': 'MG',
+        'PARANÁ': 'PR',
+        'PARAÍBA': 'PB',
+        'PARÁ': 'PA',
+        'PERNAMBUCO': 'PE',
+        'PIAUÍ': 'PI',
+        'RIO DE JANEIRO': 'RJ',
+        'RIO GRANDE DO NORTE': 'RN',
+        'RIO GRANDE DO SUL': 'RS',
+        'RONDÔNIA': 'RO',
+        'RORAIMA': 'RR',
+        'SANTA CATARINA': 'SC',
+        'SERGIPE': 'SE',
+        'SÃO PAULO': 'SP',
+        'TOCANTINS': 'TO'
+    }
+    return uf_mapping
 
-from src.core.core import get_db_manager
-
-# Carregar variáveis de ambiente
-load_dotenv()
-
-# Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-def criar_dimensao_tema():
-    """
-    Cria a dimensão tema baseada na raw_tema com a estrutura solicitada:
-    tema_sk, uf, uf_sigla, tema_id, tema, macrotema_id, macrotema, palavrachave
-    """
-    logger.info("🎯 Criando dimensão TEMA...")
-    db = get_db_manager()
+def connect_postgres():
+    """Conecta ao PostgreSQL"""
+    host = os.getenv('POSTGRES_HOST', 'localhost')
+    port = os.getenv('POSTGRES_PORT', '5433')
+    database = os.getenv('POSTGRES_DB', 'dw_oesnpg')
+    username = os.getenv('POSTGRES_USER', 'postgres')
+    password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+    
+    connection_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
     
     try:
-        # 1. Remover tabela existente se houver
-        logger.info("🗑️  Removendo dim_tema existente...")
-        drop_sql = "DROP TABLE IF EXISTS dim_tema CASCADE;"
-        db.execute_sql(drop_sql)
-        
-        # 2. Criar tabela dim_tema com nova estrutura
-        logger.info("🏗️  Criando nova estrutura dim_tema...")
-        create_sql = """
-        CREATE TABLE dim_tema (
-            tema_sk SERIAL PRIMARY KEY,
-            uf VARCHAR(50),
-            uf_sigla VARCHAR(2),
-            tema_id INTEGER,
-            tema TEXT,
-            macrotema_id INTEGER,
-            macrotema TEXT,
-            palavrachave TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """
-        
-        if not db.execute_sql(create_sql):
-            logger.error("❌ Erro ao criar tabela dim_tema")
-            return False
-            
-        # 3. Inserir registro SK=0 (desconhecido)
-        logger.info("🔧 Inserindo registro DESCONHECIDO (SK=0)...")
-        insert_sk0_sql = """
-        INSERT INTO dim_tema (tema_sk, uf, uf_sigla, tema_id, tema, macrotema_id, macrotema, palavrachave)
-        VALUES (0, 'DESCONHECIDO', 'XX', 0, 'DESCONHECIDO', 0, 'DESCONHECIDO', 'DESCONHECIDO');
-        """
-        db.execute_sql(insert_sk0_sql)
-        
-        # 4. Inserir dados da raw_tema
-        logger.info("📊 Populando dim_tema com dados da raw_tema...")
-        insert_sql = """
-        INSERT INTO dim_tema (uf, uf_sigla, tema_id, tema, macrotema_id, macrotema, palavrachave)
-        SELECT DISTINCT
-            rt.uf,
-            rt.uf_sigla,
-            rt.id as tema_id,
-            rt.tema,
-            rt.macro_tema_id as macrotema_id,
-            rt.macro_tema_nome as macrotema,
-            rt.palavra_chave as palavrachave
-        FROM raw_tema rt
-        ORDER BY rt.id;
-        """
-        
-        if db.execute_sql(insert_sql):
-            # Verificar quantos registros foram inseridos
-            count_query = "SELECT COUNT(*) as total FROM dim_tema;"
-            result = db.execute_query(count_query)
-            total = result.iloc[0]['total']
-            
-            logger.info(f"✅ dim_tema criada com {total:,} registros")
-            
-            # 5. Criar índices para performance
-            logger.info("🔍 Criando índices...")
-            indices_sql = [
-                "CREATE INDEX IF NOT EXISTS idx_dim_tema_id ON dim_tema(tema_id);",
-                "CREATE INDEX IF NOT EXISTS idx_dim_tema_uf_sigla ON dim_tema(uf_sigla);",
-                "CREATE INDEX IF NOT EXISTS idx_dim_tema_macrotema ON dim_tema(macrotema_id);"
-            ]
-            
-            for idx_sql in indices_sql:
-                db.execute_sql(idx_sql)
-            
-            logger.info("✅ Índices criados")
-            return True
-            
-        else:
-            logger.error("❌ Erro ao popular dim_tema")
-            return False
-            
+        print(f"Conectando ao PostgreSQL: {host}:{port}/{database}")
+        engine = create_engine(connection_string)
+        return engine
     except Exception as e:
-        logger.error(f"❌ Erro ao criar dimensão tema: {str(e)}")
+        print(f"ERRO: Erro ao conectar ao PostgreSQL: {e}")
+        return None
+
+def extract_raw_tema(engine):
+    """Extrai dados da tabela raw_tema"""
+    print("Extraindo dados da tabela raw_tema...")
+    
+    query = """
+    SELECT DISTINCT
+        macrotema_id,
+        macrotema_nome,
+        tema_id, 
+        tema_nome,
+        uf
+    FROM raw_tema
+    WHERE tema_nome IS NOT NULL 
+    AND tema_nome != ''
+    ORDER BY macrotema_id, tema_id
+    """
+    
+    try:
+        df = pd.read_sql(query, engine)
+        print(f"Extraidos {len(df)} registros unicos")
+        return df
+    except Exception as e:
+        print(f"ERRO: Erro ao extrair dados: {e}")
+        return None
+
+def create_sk0_record():
+    """Cria o registro SK=0 para valores desconhecidos/não aplicáveis"""
+    registro_sk0 = {
+        'tema_sk': 0,
+        'tema_id': 0,
+        'tema_nome': 'DESCONHECIDO',
+        'macrotema_id': 0,
+        'macrotema_nome': 'DESCONHECIDO',
+        'sigla_uf': 'XX',
+        'created_at': pd.Timestamp.now(),
+        'updated_at': pd.Timestamp.now()
+    }
+    
+    return pd.DataFrame([registro_sk0])
+
+def create_dim_tema(df_raw):
+    """Cria a dimensão tema"""
+    print("Criando dimensao tema...")
+    
+    # Obter mapeamento UF
+    uf_mapping = get_uf_mapping()
+    
+    # Aplicar mapeamento UF
+    df_raw['sigla_uf'] = df_raw['uf'].map(uf_mapping)
+    
+    # Criar dimensão tema
+    dim_tema = df_raw[['tema_id', 'tema_nome', 'macrotema_id', 'macrotema_nome', 'sigla_uf']].copy()
+    
+    # Remover duplicatas se houver
+    dim_tema = dim_tema.drop_duplicates(subset=['tema_id']).reset_index(drop=True)
+    
+    # Adicionar metadados
+    dim_tema['created_at'] = pd.Timestamp.now()
+    dim_tema['updated_at'] = pd.Timestamp.now()
+    
+    # Adicionar registro SK=0 para valores desconhecidos/não aplicáveis
+    registro_sk0 = create_sk0_record()
+    dim_tema = pd.concat([registro_sk0, dim_tema], ignore_index=True)
+    
+    # Gerar surrogate keys (começando do 0)
+    dim_tema['tema_sk'] = range(0, len(dim_tema))
+    
+    # Reordenar colunas
+    dim_tema = dim_tema[['tema_sk', 'tema_id', 'tema_nome', 'macrotema_id', 'macrotema_nome', 'sigla_uf', 'created_at', 'updated_at']]
+    
+    print(f"Dimensao criada com {len(dim_tema)} temas (incluindo SK=0)")
+    return dim_tema
+
+def save_dim_tema(df, engine, table_name='dim_tema'):
+    """Salva a dimensão no PostgreSQL"""
+    print(f"Salvando dimensao na tabela {table_name}...")
+    
+    try:
+        # Salvar dados
+        df.to_sql(
+            table_name,
+            engine,
+            if_exists='replace',
+            index=False,
+            method='multi',
+            chunksize=1000
+        )
+        
+        print(f"Dimensao salva com sucesso!")
+        return True
+        
+    except Exception as e:
+        print(f"ERRO: Erro ao salvar dimensao: {e}")
         return False
 
-def validar_dimensao_tema():
-    """Valida os dados da dimensão tema."""
-    logger.info("🔍 Validando dimensão TEMA...")
-    db = get_db_manager()
-    
-    try:
-        print("\n" + "="*60)
-        print("📊 VALIDAÇÃO DA DIMENSÃO TEMA")
-        print("="*60)
-        
-        # 1. Contagem total
-        query_total = "SELECT COUNT(*) as total FROM dim_tema;"
-        result = db.execute_query(query_total)
-        total = result.iloc[0]['total']
-        print(f"📊 Total de registros: {total:,}")
-        
-        # 2. Contagem por UF
-        print("\n📍 Top 10 UFs por quantidade de temas:")
-        query_uf = """
-        SELECT 
-            uf,
-            uf_sigla,
-            COUNT(*) as qtd_temas
-        FROM dim_tema 
-        WHERE tema_sk > 0
-        GROUP BY uf, uf_sigla
-        ORDER BY qtd_temas DESC
-        LIMIT 10;
-        """
-        result = db.execute_query(query_uf)
-        print(result.to_string(index=False))
-        
-        # 3. Contagem por macrotema
-        print("\n🎯 Top 10 Macrotemas:")
-        query_macro = """
-        SELECT 
-            macrotema,
-            COUNT(*) as qtd_temas
-        FROM dim_tema 
-        WHERE tema_sk > 0
-        GROUP BY macrotema
-        ORDER BY qtd_temas DESC
-        LIMIT 10;
-        """
-        result = db.execute_query(query_macro)
-        print(result.to_string(index=False))
-        
-        # 4. Verificar estrutura
-        print("\n🔍 Estrutura da tabela:")
-        query_estrutura = """
-        SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns 
-        WHERE table_name = 'dim_tema'
-        ORDER BY ordinal_position;
-        """
-        result = db.execute_query(query_estrutura)
-        print(result.to_string(index=False))
-        
-        print("\n✅ Validação concluída!")
-        
-    except Exception as e:
-        logger.error(f"❌ Erro na validação: {str(e)}")
-
 def main():
-    """Função principal."""
-    try:
-        logger.info("🚀 Iniciando criação da dimensão TEMA")
-        
-        # 1. Criar dimensão
-        if not criar_dimensao_tema():
-            logger.error("❌ Falha na criação da dimensão tema")
+    parser = argparse.ArgumentParser(description='Criar dimensão tema a partir de raw_tema')
+    parser.add_argument('--table', default='dim_tema', help='Nome da tabela destino')
+    parser.add_argument('--test', action='store_true', help='Modo teste com dados simulados')
+    args = parser.parse_args()
+    
+    print("CRIANDO DIMENSAO TEMA")
+    print("=" * 50)
+    
+    if args.test:
+        print("MODO TESTE: Usando dados simulados")
+        # Criar dados fictícios para teste
+        df_raw = pd.DataFrame({
+            'tema_id': [1, 2, 3],
+            'tema_nome': ['Tema A', 'Tema B', 'Tema C'],
+            'macrotema_id': [1, 1, 2], 
+            'macrotema_nome': ['Macro A', 'Macro A', 'Macro B'],
+            'uf': ['SÃO PAULO', 'RIO DE JANEIRO', 'MINAS GERAIS']
+        })
+    else:
+        # Conectar ao banco
+        engine = connect_postgres()
+        if not engine:
+            print("ERRO: Nao foi possivel conectar ao PostgreSQL")
             return
-            
-        # 2. Validar dimensão
-        validar_dimensao_tema()
         
-        print("\n" + "="*70)
-        print("🎉 DIMENSÃO TEMA CRIADA COM SUCESSO!")
-        print("="*70)
-        print("✅ Tabela: dim_tema")
-        print("✅ Estrutura: tema_sk, uf, uf_sigla, tema_id, tema, macrotema_id, macrotema, palavrachave")
-        print("✅ Dados: Baseados na raw_tema")
-        print("✅ Performance: Índices criados")
-        print("="*70)
-        
-    except Exception as e:
-        logger.error(f"❌ Erro durante criação da dimensão TEMA: {str(e)}")
+        # Extrair dados raw
+        df_raw = extract_raw_tema(engine)
+        if df_raw is None:
+            return
+    
+    # Criar dimensão
+    dim_tema = create_dim_tema(df_raw)
+    
+    # Mostrar preview
+    print(f"\nPreview da dimensao:")
+    print(dim_tema.head(10))
+    
+    # Estatísticas
+    print(f"\nEstatisticas:")
+    print(f"   Total de registros: {len(dim_tema)}")
+    print(f"   Temas unicos (excluindo SK=0): {len(dim_tema[dim_tema['tema_sk'] != 0])}")
+    print(f"   Macro temas unicos: {dim_tema[dim_tema['tema_sk'] != 0]['macrotema_id'].nunique()}")
+    print(f"   UFs unicas: {dim_tema[dim_tema['tema_sk'] != 0]['sigla_uf'].nunique()}")
+    
+    # Salvar apenas se não for teste
+    if not args.test:
+        save_dim_tema(dim_tema, engine, args.table)
+    else:
+        print("\nMODO TESTE: Dimensao nao foi salva no banco")
+    
+    print("\nProcesso concluido!")
 
 if __name__ == "__main__":
     main()

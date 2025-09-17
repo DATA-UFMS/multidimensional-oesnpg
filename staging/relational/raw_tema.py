@@ -1,217 +1,200 @@
 #!/usr/bin/env python3
 """
-Script RAW para dados de Temas
-Lê da planilha macro_temas_oesnpg_v2.xlsx (aba macro-temas-v2)
-Extrai: id_tema, uf, tema_nome, macrotema_id, palavrachave_nome (desnormalizado), sigla_uf
-Salva na tabela raw_tema no PostgreSQL
+Script para gerar raw_tema e salvar no PostgreSQL
+Uma única tabela com: macrotema_id, macrotema_nome, tema_id, tema_nome, palavrachave_id, palavrachave_nome
 """
 
 import pandas as pd
-from datetime import datetime
 from pathlib import Path
-import sys
+import argparse
+from sqlalchemy import create_engine, text
 import os
 
-# Adiciona o diretório base ao path para importar módulos
-sys.path.append(str(Path(__file__).parent))
-
-try:
-    from base_raw import (
-        DatabaseManager, DataQualityAnalyzer, DataCleaner, FileManager,
-        print_header, print_status, apply_naming_convention, validate_required_fields
-    )
-except ImportError:
-    print("❌ Erro: Não foi possível importar módulos base. Verifique se base_raw_updated.py está no mesmo diretório.")
-    sys.exit(1)
-
-def load_macro_temas_planilha():
-    """Carrega dados da planilha macro_temas_oesnpg_v2.xlsx, aba macro-temas-v2"""
-    print_status("Carregando planilha macro_temas_oesnpg_v2.xlsx...", "info")
+def save_to_postgres(df, table_name='raw_tema'):
+    """Salva DataFrame no PostgreSQL"""
+    # Configurações do banco (via variáveis de ambiente ou padrão)
+    host = os.getenv('POSTGRES_HOST', 'localhost')
+    port = os.getenv('POSTGRES_PORT', '5433')
+    database = os.getenv('POSTGRES_DB', 'dw_oesnpg')
+    username = os.getenv('POSTGRES_USER', 'postgres')
+    password = os.getenv('POSTGRES_PASSWORD', 'postgres')
     
-    possible_paths = [
-        "../data/macro_temas_oesnpg_v2.xlsx",
-        "staging/data/macro_temas_oesnpg_v2.xlsx",
-        "/home/ubuntu/upload/macro_temas_oesnpg_v2.xlsx",
-        "macro_temas_oesnpg_v2.xlsx"
-    ]
-    
-    filepath = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            filepath = path
-            break
-    
-    if not filepath:
-        print_status("❌ Arquivo macro_temas_oesnpg_v2.xlsx não encontrado", "error")
-        return pd.DataFrame()
+    # String de conexão
+    connection_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
     
     try:
-        # Tenta carregar a aba específica "macro-temas-v2"
-        try:
-            df = pd.read_excel(filepath, sheet_name='macro-temas-v2')
-            print_status(f"✅ Carregados {len(df)} registros da aba 'macro-temas-v2'", "success")
-        except:
-            # Se não encontrar a aba, carrega a primeira aba
-            df = pd.read_excel(filepath)
-            print_status(f"✅ Carregados {len(df)} registros da primeira aba", "success")
+        print(f"🔗 Conectando ao PostgreSQL: {host}:{port}/{database}")
+        engine = create_engine(connection_string)
         
-        print_status(f"   Colunas encontradas: {list(df.columns)}", "info")
-        return df
+        # Testar conexão
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT version()"))
+            row = result.fetchone()
+            if row:
+                version = row[0]
+                print(f"✅ Conectado! Versão: {version[:50]}...")
+            else:
+                print(f"✅ Conectado ao PostgreSQL!")
         
-    except Exception as e:
-        print_status(f"❌ Erro ao carregar planilha: {str(e)}", "error")
-        return pd.DataFrame()
-
-def process_macro_temas_data(df):
-    """Processa dados da planilha e desnormaliza palavras-chave"""
-    print_status("Processando dados da planilha...", "info")
-    
-    if df.empty:
-        return pd.DataFrame()
-    
-    registros = []
-    palavrachave_id_counter = 1  # Contador para IDs únicos de palavras-chave
-    
-    for idx, row in df.iterrows():
-        # Extrai campos principais
-        id_tema = row['ID'] if 'ID' in row else None
-        uf = row['UF'] if 'UF' in row else None
-        tema_nome = row['TEMA'] if 'TEMA' in row else None
-        macrotema_id = row['macro_tema_1_id'] if 'macro_tema_1_id' in row else None
-        palavras_chave = row['PALAVRA-CHAVE'] if 'PALAVRA-CHAVE' in row else None
-        
-        # Cria sigla_uf (mapeamento de UF para sigla)
-        uf_to_sigla = {
-            'ACRE': 'AC', 'ALAGOAS': 'AL', 'AMAPÁ': 'AP', 'AMAZONAS': 'AM',
-            'BAHIA': 'BA', 'CEARÁ': 'CE', 'DISTRITO FEDERAL': 'DF', 'ESPÍRITO SANTO': 'ES',
-            'GOIÁS': 'GO', 'MARANHÃO': 'MA', 'MATO GROSSO': 'MT', 'MATO GROSSO DO SUL': 'MS',
-            'MINAS GERAIS': 'MG', 'PARÁ': 'PA', 'PARAÍBA': 'PB', 'PARANÁ': 'PR',
-            'PERNAMBUCO': 'PE', 'PIAUÍ': 'PI', 'RIO DE JANEIRO': 'RJ', 'RIO GRANDE DO NORTE': 'RN',
-            'RIO GRANDE DO SUL': 'RS', 'RONDÔNIA': 'RO', 'RORAIMA': 'RR', 'SANTA CATARINA': 'SC',
-            'SÃO PAULO': 'SP', 'SERGIPE': 'SE', 'TOCANTINS': 'TO'
-        }
-        sigla_uf = uf_to_sigla.get(str(uf).upper(), str(uf)) if pd.notna(uf) else None
-        
-        # Valida campos obrigatórios
-        if pd.isna(id_tema) or pd.isna(tema_nome):
-            continue
-        
-        # Desnormaliza palavras-chave
-        if pd.notna(palavras_chave) and str(palavras_chave).strip():
-            # Separa por vírgula e limpa
-            palavras_lista = [p.strip() for p in str(palavras_chave).split(',')]
-            
-            for palavra in palavras_lista:
-                if palavra:  # Se não estiver vazia
-                    registros.append({
-                        'id_tema': int(id_tema),
-                        'uf': str(uf).strip() if pd.notna(uf) else None,
-                        'tema_nome': str(tema_nome).strip(),
-                        'macrotema_id': int(macrotema_id) if pd.notna(macrotema_id) else None,
-                        'palavrachave_id': palavrachave_id_counter,
-                        'palavrachave_nome': palavra,
-                        'sigla_uf': sigla_uf,
-                        'data_carga': datetime.now(),
-                        'fonte_arquivo': 'macro_temas_oesnpg_v2.xlsx'
-                    })
-                    palavrachave_id_counter += 1
-        else:
-            # Se não tem palavras-chave, cria registro sem palavra-chave
-            registros.append({
-                'id_tema': int(id_tema),
-                'uf': str(uf).strip() if pd.notna(uf) else None,
-                'tema_nome': str(tema_nome).strip(),
-                'macrotema_id': int(macrotema_id) if pd.notna(macrotema_id) else None,
-                'palavrachave_id': None,
-                'palavrachave_nome': None,
-                'sigla_uf': sigla_uf,
-                'data_carga': datetime.now(),
-                'fonte_arquivo': 'macro_temas_oesnpg_v2.xlsx'
-            })
-    
-    df_result = pd.DataFrame(registros)
-    
-    print_status(f"✅ Processados {len(df_result)} registros desnormalizados", "success")
-    print_status(f"   • Temas únicos: {df_result['id_tema'].nunique()}", "info")
-    print_status(f"   • Palavras-chave únicas: {df_result['palavrachave_nome'].nunique()}", "info")
-    print_status(f"   • UFs únicas: {df_result['uf'].nunique()}", "info")
-    print_status(f"   • IDs de palavras-chave: 1 a {palavrachave_id_counter-1}", "info")
-    
-    return df_result
-
-def main():
-    """Função principal"""
-    print_header("RAW - Dados de Temas (macro_temas_oesnpg_v2.xlsx)")
-    
-    # 1. Carregar dados da planilha
-    df_planilha = load_macro_temas_planilha()
-    
-    if df_planilha.empty:
-        print_status("❌ Nenhum dado foi carregado da planilha", "error")
-        return
-    
-    # 2. Processar e desnormalizar dados
-    df_processed = process_macro_temas_data(df_planilha)
-    
-    if df_processed.empty:
-        print_status("❌ Nenhum dado foi processado", "error")
-        return
-    
-    # 3. Validar campos obrigatórios
-    required_fields = ['id_tema', 'tema_nome']
-    if not validate_required_fields(df_processed, required_fields, "Temas"):
-        print_status("⚠️ Continuando com campos obrigatórios ausentes", "warning")
-    
-    # 4. Analisar qualidade dos dados
-    analyzer = DataQualityAnalyzer()
-    print_status("Analisando qualidade dos dados...", "info")
-    analyzer.analyze_dataframe(df_processed, "Temas Processados")
-    
-    # 5. Salvar no banco PostgreSQL
-    db_manager = DatabaseManager()
-    
-    try:
-        print_status("Salvando dados na tabela raw_tema...", "info")
-        success = db_manager.save_dataframe(
-            df_processed,
-            'raw_tema',
-            if_exists='replace'
+        # Salvar dados
+        print(f"💾 Salvando tabela: {table_name}")
+        df.to_sql(
+            table_name, 
+            engine, 
+            if_exists='replace',  # Substitui a tabela se existir
+            index=False,
+            method='multi',  # Mais rápido para grandes volumes
+            chunksize=1000
         )
         
-        if success:
-            print_status("✅ Dados salvos com sucesso na tabela raw_tema", "success")
-        else:
-            print_status("⚠️ Problemas ao salvar dados no banco", "warning")
-            
-    except Exception as e:
-        print_status(f"❌ Erro ao salvar no banco: {str(e)}", "error")
+        print(f"✅ Dados salvos no PostgreSQL!")
+        return True
         
-        # Salva em CSV como backup
-        print_status("Salvando em CSV como backup...", "info")
-        df_processed.to_csv('raw_tema_backup.csv', index=False, encoding='utf-8')
-        print_status("✅ Backup salvo em raw_tema_backup.csv", "success")
+    except Exception as e:
+        print(f"❌ Erro ao conectar/salvar no PostgreSQL: {e}")
+        print(f"💡 Verifique se o PostgreSQL está rodando e as credenciais estão corretas")
+        print(f"💡 Variáveis de ambiente disponíveis:")
+        print(f"   POSTGRES_HOST={host}")
+        print(f"   POSTGRES_PORT={port}")
+        print(f"   POSTGRES_DB={database}")
+        print(f"   POSTGRES_USER={username}")
+        return False
+
+def main():
+    # Argumentos da linha de comando
+    parser = argparse.ArgumentParser(description='Processar macro temas e salvar no PostgreSQL')
+    parser.add_argument('--postgres', action='store_true', help='Salvar no PostgreSQL')
+    parser.add_argument('--table', default='raw_tema', help='Nome da tabela no PostgreSQL')
+    args = parser.parse_args()
     
-    # 6. Relatório final
-    print_status("Processamento concluído!", "success")
-    print(f"   • Registros processados: {len(df_processed)}")
-    print(f"   • Temas únicos: {df_processed['id_tema'].nunique()}")
-    print(f"   • Palavras-chave únicas: {df_processed['palavrachave_nome'].nunique()}")
-    print(f"   • UFs únicas: {df_processed['uf'].nunique()}")
-    print(f"   • Tabela criada: raw_tema")
+    # Caminhos
+    base_dir = Path(__file__).resolve().parent
+    excel_path = (base_dir / ".." / "data" / "macro_temas_oesnpg_v2.xlsx").resolve()
     
-    # Estatísticas por UF
-    print(f"\n   • Distribuição por UF (top 10):")
-    uf_counts = df_processed['uf'].value_counts().head(10)
-    for uf, count in uf_counts.items():
-        print(f"     - {uf}: {count} registros")
+    print(f"📖 Lendo planilha: {excel_path}")
     
-    # Estatísticas por macro-tema
-    if 'macrotema_id' in df_processed.columns:
-        macro_counts = df_processed['macrotema_id'].value_counts().head(5)
-        if len(macro_counts) > 0:
-            print(f"\n   • Distribuição por macro-tema (top 5):")
-            for macro_id, count in macro_counts.items():
-                print(f"     - Macro-tema {macro_id}: {count} registros")
+    # Ler planilha
+    try:
+        df = pd.read_excel(excel_path, sheet_name='macro-temas-v2')
+    except FileNotFoundError:
+        print(f"❌ Arquivo não encontrado: {excel_path}")
+        return
+    except Exception as e:
+        print(f"❌ Erro ao ler planilha: {e}")
+        return
+    
+    print(f"📊 Dados carregados: {len(df)} linhas")
+    print(f"🔍 Colunas disponíveis: {list(df.columns)}")
+    
+    # Detectar colunas principais
+    def find_column(df, keywords):
+        for col in df.columns:
+            col_lower = col.lower()
+            if any(keyword.lower() in col_lower for keyword in keywords):
+                return col
+        return None
+    
+    # Usar macro_tema_1_label como macro tema principal
+    macro_col = 'macro_tema_1_label' if 'macro_tema_1_label' in df.columns else find_column(df, ['macro'])
+    tema_col = 'TEMA' if 'TEMA' in df.columns else find_column(df, ['tema'])
+    palavras_col = 'PALAVRA-CHAVE' if 'PALAVRA-CHAVE' in df.columns else find_column(df, ['palavra', 'chave'])
+    uf_col = 'UF' if 'UF' in df.columns else find_column(df, ['uf', 'estado'])
+    
+    if not macro_col or not tema_col:
+        print(f"❌ Não foi possível detectar colunas necessárias")
+        print(f"   Macro tema encontrado: {macro_col}")
+        print(f"   Tema encontrado: {tema_col}")
+        return
+    
+    print(f"✅ Usando colunas:")
+    print(f"   Macro tema: {macro_col}")
+    print(f"   Tema: {tema_col}")
+    print(f"   Palavras-chave: {palavras_col}")
+    print(f"   UF: {uf_col}")
+    
+    # Preparar DataFrame
+    df_work = df.copy()
+    df_work['macrotema_nome'] = df_work[macro_col].fillna('').astype(str).str.strip()
+    df_work['tema_nome'] = df_work[tema_col].fillna('').astype(str).str.strip()
+    
+    # Adicionar UF
+    if uf_col and uf_col in df_work.columns:
+        df_work['uf'] = df_work[uf_col].fillna('').astype(str).str.strip().str.upper()
+    else:
+        df_work['uf'] = ''
+    
+    # Tratar palavras-chave
+    if palavras_col in df_work.columns:
+        df_work['palavras_chave'] = df_work[palavras_col].fillna('').astype(str)
+    else:
+        df_work['palavras_chave'] = ''
+    
+    # Desnormalizar palavras-chave (explode)
+    df_work['palavrachave_nome'] = (
+        df_work['palavras_chave']
+        .str.replace(r'[\n\r|/;,]', ';', regex=True)
+        .str.split(';')
+    )
+    df_work = df_work.explode('palavrachave_nome').reset_index(drop=True)
+    df_work['palavrachave_nome'] = df_work['palavrachave_nome'].fillna('').str.strip()
+    
+    # Gerar IDs
+    df_work['macrotema_id'], _ = pd.factorize(df_work['macrotema_nome'], sort=True)
+    df_work['macrotema_id'] += 1
+    
+    tema_key = df_work['macrotema_nome'] + '||' + df_work['tema_nome']
+    df_work['tema_id'], _ = pd.factorize(tema_key, sort=True)
+    df_work['tema_id'] += 1
+    
+    df_work['palavrachave_id'], _ = pd.factorize(df_work['palavrachave_nome'], sort=True)
+    df_work['palavrachave_id'] += 1
+    
+    # Selecionar colunas finais
+    final_cols = [
+        'macrotema_id',
+        'macrotema_nome', 
+        'tema_id',
+        'tema_nome',
+        'palavrachave_id',
+        'palavrachave_nome',
+        'uf'
+    ]
+    
+    df_final = df_work[final_cols].copy()
+    
+    # Adicionar metadados
+    df_final['fonte_arquivo'] = excel_path.name
+    df_final['created_at'] = pd.Timestamp.now()
+    
+    # Salvar no PostgreSQL se solicitado
+    if args.postgres:
+        save_to_postgres(df_final, args.table)
+    else:
+        print("💡 Use --postgres para enviar a tabela ao banco.")
+        print("💡 Dados processados apenas em memória (sem geração de arquivos).")
+    
+    print(f"✅ Concluído!")
+    print(f"    Linhas: {len(df_final)}")
+    print(f"   🔗 Colunas: {list(df_final.columns)}")
+    
+    if args.postgres:
+        print(f"   🗄️  Tabela PostgreSQL: {args.table}")
+    else:
+        print(f"   💡 Use --postgres para salvar no banco também")
+    
+    # Mostrar preview
+    print(f"\n📋 Preview dos dados:")
+    print(df_final.head())
+    
+    print(f"\n📈 Resumo:")
+    print(f"   Macro temas únicos: {df_final['macrotema_id'].nunique()}")
+    print(f"   Temas únicos: {df_final['tema_id'].nunique()}")
+    print(f"   Palavras-chave únicas: {df_final['palavrachave_id'].nunique()}")
+    print(f"   UFs únicas: {df_final['uf'].nunique()}")
+    
+    # Mostrar UFs disponíveis
+    ufs_unicas = sorted(df_final['uf'].unique())
+    print(f"   UFs: {', '.join(ufs_unicas)}")
 
 if __name__ == "__main__":
     main()

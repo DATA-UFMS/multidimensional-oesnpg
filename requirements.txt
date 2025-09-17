@@ -5,3 +5,5 @@ numpy
 openpyxl
 requests
 python-dotenv
+pyarrow
+s3fs

@@ -1,136 +1,265 @@
 #!/usr/bin/env python3
 """
-Script para criação da tabela raw_docente.
-Extrai dados de docentes da API CAPES e arquivos CSV.
+br-capes-colsucup-docente-*.csv em staging/data/.
+Consolida todos os anos e remove duplicatas baseado em ID_PESSOA + AN_BASE.
+Opcionalmente, salva também no PostgreSQL (tabela raw_docente).
 """
 
-import pandas as pd
+import argparse
 import os
-from base_raw import CAPESApiExtractor, DatabaseManager, DataQualityAnalyzer, DataCleaner, print_header, print_status, print_summary
+import glob
+from pathlib import Path
+from typing import Dict, List
 
-# Resource ID da API CAPES para docentes
-DOCENTE_RESOURCE_ID = '7d9547c8-9a0d-433a-b2c8-ee9fbbdc5b3a'
+import pandas as pd
+from sqlalchemy import create_engine, text
 
-def load_docente_api_data():
-    """Carrega dados de docentes da API CAPES"""
-    print_status("Extraindo dados de docentes da API CAPES...")
-    
-    extractor = CAPESApiExtractor()
-    df = extractor.fetch_all_data(DOCENTE_RESOURCE_ID)
-    
-    if not df.empty:
-        df['fonte_dados'] = 'API_CAPES'
-        print_status(f"API CAPES: {len(df):,} registros extraídos", "success")
-    
-    return df
 
-def load_docente_csv_data():
-    """Carrega dados de docentes de arquivo CSV local"""
-    print_status("Carregando dados de docentes de arquivo CSV...")
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(script_dir, '..', 'data')
-    csv_path = os.path.join(data_dir, 'br-capes-colsucup-docente-2021-2025-03-31.csv')
-    
-    if not os.path.exists(csv_path):
-        print_status(f"Arquivo CSV não encontrado: {os.path.basename(csv_path)}", "warning")
-        return pd.DataFrame()
-    
+DEFAULT_TABLE = "raw_docente"
+
+
+def save_to_postgres(df: pd.DataFrame, table_name: str) -> bool:
+    """Salva o DataFrame na tabela indicada do PostgreSQL."""
+    host = os.getenv("POSTGRES_HOST")
+    port = os.getenv("POSTGRES_PORT")
+    database = os.getenv("POSTGRES_DB")
+    username = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+
+    conn_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+
     try:
-        # Tentar diferentes encodings
-        for encoding in ['utf-8', 'latin-1', 'cp1252']:
-            try:
-                df = pd.read_csv(csv_path, encoding=encoding)
-                df['fonte_dados'] = 'CSV_LOCAL'
-                print_status(f"CSV local: {len(df):,} registros carregados", "success")
-                return df
-            except UnicodeDecodeError:
-                continue
-        
-        print_status("Erro: não foi possível decodificar o arquivo CSV", "error")
-        return pd.DataFrame()
-        
-    except Exception as e:
-        print_status(f"Erro ao carregar CSV: {e}", "error")
-        return pd.DataFrame()
+        print(f"🔗 Conectando ao PostgreSQL: {host}:{port}/{database}")
+        engine = create_engine(conn_string)
 
-def transform_docente_data(df):
-    """Transforma dados de docentes"""
-    print_status("Transformando dados de docentes...")
-    
-    # Aplicar limpeza básica
-    df = DataCleaner.clean_dataframe(df)
-    
-    # Padronizar campos específicos de docentes
-    docente_field_mapping = {
-        'nm_docente': 'des_docente_nome',
-        'nm_pessoa': 'des_docente_nome',
-        'id_lattes': 'id_lattes',
-        'id_pessoa': 'id_pessoa_capes',
-        'nm_programa': 'des_programa',
-        'nm_ies': 'des_ies',
-        'sg_uf_ies': 'sg_uf',
-        'nm_regiao': 'des_regiao',
-        'nm_area_avaliacao': 'des_area_avaliacao',
-        'cd_programa': 'cod_programa',
-        'cd_ies': 'cod_ies'
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT version()")).fetchone()
+            if row:
+                print(f"✅ Conectado (versão: {row[0][:50]}...)")
+            else:
+                print("✅ Conectado ao PostgreSQL.")
+
+        print(f"💾 Gravando tabela {table_name}...")
+        df.to_sql(
+            table_name,
+            engine,
+            if_exists="replace",
+            index=False,
+            method="multi",
+            chunksize=1000,
+        )
+        print("✅ Dados enviados ao PostgreSQL.")
+        return True
+
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"❌ Erro ao conectar/salvar no PostgreSQL: {exc}")
+        print("💡 Verifique se o banco está disponível e as variáveis de ambiente foram definidas.")
+        return False
+
+
+def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza nomes das colunas para padrão snake_case."""
+    rename_map: Dict[str, str] = {
+        "AN_BASE": "ano_base",
+        "CD_AREA_AVALIACAO": "cd_area_avaliacao",
+        "NM_AREA_AVALIACAO": "nm_area_avaliacao",
+        "NM_GRANDE_AREA_CONHECIMENTO": "nm_grande_area_conhecimento",
+        "NM_AREA_CONHECIMENTO": "nm_area_conhecimento",
+        "CD_PROGRAMA_IES": "cd_programa_ies",
+        "NM_PROGRAMA_IES": "nm_programa_ies",
+        "NM_GRAU_PROGRAMA": "nm_grau_programa",
+        "NM_MODALIDADE_PROGRAMA": "nm_modalidade_programa",
+        "CD_CONCEITO_PROGRAMA": "cd_conceito_programa",
+        "CD_ENTIDADE_CAPES": "cd_entidade_capes",
+        "CD_ENTIDADE_EMEC": "cd_entidade_emec",
+        "SG_ENTIDADE_ENSINO": "sg_entidade_ensino",
+        "NM_ENTIDADE_ENSINO": "nm_entidade_ensino",
+        "DS_DEPENDENCIA_ADMINISTRATIVA": "ds_dependencia_administrativa",
+        "CS_STATUS_JURIDICO": "cs_status_juridico",
+        "NM_MUNICIPIO_PROGRAMA_IES": "nm_municipio_programa_ies",
+        "SG_UF_PROGRAMA": "sg_uf_programa",
+        "NM_REGIAO": "nm_regiao",
+        "ID_PESSOA": "id_pessoa",
+        "TP_DOCUMENTO_DOCENTE": "tp_documento_docente",
+        "NR_DOCUMENTO_DOCENTE": "nr_documento_docente",
+        "NM_DOCENTE": "nm_docente",
+        "AN_NASCIMENTO_DOCENTE": "an_nascimento_docente",
+        "DS_FAIXA_ETARIA": "ds_faixa_etaria",
+        "DS_TIPO_NACIONALIDADE_DOCENTE": "ds_tipo_nacionalidade_docente",
+        "NM_PAIS_NACIONALIDADE_DOCENTE": "nm_pais_nacionalidade_docente",
+        "DS_CATEGORIA_DOCENTE": "ds_categoria_docente",
+        "DS_TIPO_VINCULO_DOCENTE_IES": "ds_tipo_vinculo_docente_ies",
+        "DS_REGIME_TRABALHO": "ds_regime_trabalho",
+        "CD_CAT_BOLSA_PRODUTIVIDADE": "cd_cat_bolsa_produtividade",
+        "IN_DOUTOR": "in_doutor",
+        "AN_TITULACAO": "an_titulacao",
+        "NM_GRAU_TITULACAO": "nm_grau_titulacao",
+        "CD_AREA_BASICA_TITULACAO": "cd_area_basica_titulacao",
+        "NM_AREA_BASICA_TITULACAO": "nm_area_basica_titulacao",
+        "SG_IES_TITULACAO": "sg_ies_titulacao",
+        "NM_IES_TITULACAO": "nm_ies_titulacao",
+        "NM_PAIS_IES_TITULACAO": "nm_pais_ies_titulacao",
+        "ID_ADD_FOTO_PROGRAMA": "id_add_foto_programa",
+        "ID_ADD_FOTO_PROGRAMA_IES": "id_add_foto_programa_ies",
     }
     
-    for old_col, new_col in docente_field_mapping.items():
-        matching_cols = [col for col in df.columns if old_col in col.lower()]
-        if matching_cols:
-            df[new_col] = df[matching_cols[0]]
-    
-    # Limpar e padronizar ID Lattes
-    if 'id_lattes' in df.columns:
-        df['id_lattes'] = df['id_lattes'].astype(str).str.replace(r'[^\d]', '', regex=True)
-        df.loc[df['id_lattes'].str.len() == 0, 'id_lattes'] = None
-    
-    # Criar ID único se não existir
-    if 'id_docente' not in df.columns and 'id_pessoa_capes' in df.columns:
-        df['id_docente'] = df['id_pessoa_capes']
-    elif 'id_docente' not in df.columns:
-        df['id_docente'] = range(1, len(df) + 1)
-    
-    return df
+    return df.rename(columns=rename_map)
 
-def main():
-    print_header("Criando Tabela RAW_DOCENTE")
+
+def load_and_consolidate_docente_files(data_dir: Path) -> pd.DataFrame:
+    """Carrega e consolida todos os arquivos de docentes."""
+    # Busca todos os arquivos de docentes
+    pattern = str(data_dir / "br-capes-colsucup-docente-*.csv")
+    docente_files = glob.glob(pattern)
     
-    all_data = []
+    if not docente_files:
+        raise FileNotFoundError(f"Nenhum arquivo de docente encontrado em {data_dir}")
     
-    # Carregar dados da API
-    df_api = load_docente_api_data()
-    if not df_api.empty:
-        all_data.append(df_api)
+    print(f"📁 Encontrados {len(docente_files)} arquivos de docentes:")
+    for file_path in sorted(docente_files):
+        print(f"   • {Path(file_path).name}")
     
-    # Carregar dados de CSV
-    df_csv = load_docente_csv_data()
-    if not df_csv.empty:
-        all_data.append(df_csv)
+    dataframes: List[pd.DataFrame] = []
+    total_records = 0
     
-    if not all_data:
-        print_status("Nenhum dado carregado. Processo encerrado.", "error")
-        return
+    for file_path in sorted(docente_files):
+        file_name = Path(file_path).name
+        print(f"📥 Processando {file_name}...")
+        
+        try:
+            # Lê o arquivo com encoding latin-1 e separador ;
+            # Tenta primeiro com engine padrão, depois com python se falhar
+            try:
+                df = pd.read_csv(file_path, encoding="latin-1", sep=";", dtype=str)
+            except Exception:
+                print(f"   ⚠️  Tentando com engine='python'...")
+                df = pd.read_csv(file_path, encoding="latin-1", sep=";", dtype=str, engine="python")
+            
+            # Normaliza nomes das colunas
+            df = normalize_column_names(df)
+            
+            # Adiciona metadados
+            df["fonte_arquivo"] = file_name
+            df["created_at"] = pd.Timestamp.now().normalize()
+            
+            print(f"   ✔ {len(df):,} registros carregados")
+            total_records += len(df)
+            dataframes.append(df)
+            
+        except Exception as exc:
+            print(f"   ❌ Erro ao processar {file_name}: {exc}")
+            continue
     
-    # Consolidar todos os dados
-    df_consolidated = pd.concat(all_data, ignore_index=True)
-    print_status(f"Dados consolidados: {len(df_consolidated):,} registros")
+    if not dataframes:
+        raise ValueError("Nenhum arquivo foi processado com sucesso")
     
-    # Transformar dados
-    df_transformed = transform_docente_data(df_consolidated)
+    print(f"\n🔄 Consolidando {total_records:,} registros de {len(dataframes)} arquivos...")
+    df_consolidated = pd.concat(dataframes, ignore_index=True)
     
-    # Analisar qualidade
-    DataQualityAnalyzer.analyze_dataframe(df_transformed, "RAW_DOCENTE")
+    return df_consolidated
+
+
+def clean_and_deduplicate(df: pd.DataFrame) -> pd.DataFrame:
+    """Limpa os dados e remove duplicatas."""
+    print("🧹 Limpando dados...")
     
-    # Salvar no banco
-    db = DatabaseManager()
-    success = db.save_dataframe(df_transformed, 'raw_docente')
+    # Limpeza básica dos textos
+    for col in df.columns:
+        if df[col].dtype == object and col not in ["fonte_arquivo", "created_at"]:
+            df[col] = df[col].fillna("").astype(str).str.strip()
     
-    if success:
-        print_summary(len(df_transformed), 'raw_docente')
+    # Conversões específicas
+    numeric_cols = ["ano_base", "id_pessoa", "an_nascimento_docente", "an_titulacao", 
+                   "cd_area_avaliacao", "cd_programa_ies", "cd_conceito_programa",
+                   "cd_entidade_capes", "cd_entidade_emec", "cd_area_basica_titulacao",
+                   "id_add_foto_programa", "id_add_foto_programa_ies"]
+    
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    
+    # Normaliza campos de texto importantes
+    text_normalize_cols = ["sg_entidade_ensino", "sg_uf_programa", "tp_documento_docente",
+                          "ds_categoria_docente", "in_doutor", "sg_ies_titulacao"]
+    
+    for col in text_normalize_cols:
+        if col in df.columns:
+            df[col] = df[col].str.upper()
+    
+    print(f"   ✔ Dados limpos: {len(df):,} registros")
+    
+    # Remove duplicatas baseado em ID_PESSOA + ANO_BASE + CD_PROGRAMA_IES
+    print("🔍 Removendo duplicatas...")
+    duplicates_before = len(df)
+    
+    # Identifica duplicatas baseado nas chaves principais
+    dedup_keys = ["id_pessoa", "ano_base", "cd_programa_ies"]
+    df_dedup = df.drop_duplicates(subset=dedup_keys, keep="last")
+    
+    duplicates_removed = duplicates_before - len(df_dedup)
+    print(f"   ✔ {duplicates_removed:,} duplicatas removidas")
+    print(f"   ✔ {len(df_dedup):,} registros únicos mantidos")
+    
+    return df_dedup
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Gera a tabela raw_docente consolidando todos os arquivos de docentes CAPES."
+    )
+    parser.add_argument(
+        "--postgres",
+        action="store_true",
+        help="Envia a tabela também para o PostgreSQL (default: não envia).",
+    )
+    parser.add_argument(
+        "--table",
+        default=DEFAULT_TABLE,
+        help=f"Nome da tabela destino no PostgreSQL (default: {DEFAULT_TABLE}).",
+    )
+    args = parser.parse_args()
+
+    base_dir = Path(__file__).resolve().parent
+    data_dir = (base_dir / ".." / "data").resolve()
+
+    print("🎓 === PROCESSAMENTO RAW_DOCENTE CAPES ===")
+    print(f"📖 Diretório de dados: {data_dir}")
+    
+    # Carrega e consolida todos os arquivos
+    df = load_and_consolidate_docente_files(data_dir)
+    
+    # Limpa e remove duplicatas
+    df_clean = clean_and_deduplicate(df)
+    
+    # Reorganiza colunas para melhor visualização
+    priority_cols = [
+        "id_pessoa", "nm_docente", "ano_base", "nm_entidade_ensino", "sg_uf_programa",
+        "ds_categoria_docente", "nm_programa_ies", "nm_area_avaliacao", "in_doutor",
+        "fonte_arquivo", "created_at"
+    ]
+    other_cols = [col for col in df_clean.columns if col not in priority_cols]
+    final_cols = priority_cols + other_cols
+    df_final = df_clean[[col for col in final_cols if col in df_clean.columns]]
+    
+    # Salva no PostgreSQL se solicitado
+    if args.postgres:
+        save_to_postgres(df_final, args.table)
     else:
-        print_status("Falha ao salvar dados no banco", "error")
+        print("💡 Use --postgres para enviar a tabela ao banco.")
+        print("💡 Dados processados apenas em memória (sem geração de arquivos).")
+
+    # Estatísticas finais
+    print("\n📊 Estatísticas finais:")
+    print(f"   • Total de registros: {len(df_final):,}")
+    print(f"   • Docentes únicos: {df_final['id_pessoa'].nunique():,}")
+    print(f"   • Anos de base: {sorted(df_final['ano_base'].unique())}")
+    print(f"   • Instituições: {df_final['nm_entidade_ensino'].nunique():,}")
+    print(f"   • UFs: {sorted(df_final['sg_uf_programa'].unique())}")
+    
+    print("\n📋 Amostra dos dados:")
+    display_cols = ["id_pessoa", "nm_docente", "ano_base", "nm_entidade_ensino", "sg_uf_programa"]
+    print(df_final[display_cols].head().to_string())
+
 
 if __name__ == "__main__":
     main()
