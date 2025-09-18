@@ -1,395 +1,350 @@
 #!/usr/bin/env python3
 """
-Dimensão de Docentes (dim_docente)
-Integra dados de raw_docente e raw_fomentopq para criar uma dimensão unificada.
-Cada docente único recebe uma surrogate key (sk), iniciando com sk=0 para "Desconhecido".
+Geração da Dimensão de Docentes Consolidada
+
+Este script lê o arquivo 'add_docentes.parquet' do MinIO como base principal,
+enriquece com dados de raw_docente e raw_fomentopq do PostgreSQL,
+e cria uma dimensão de docentes completa.
+
+Fontes:
+- Base: add_docentes.parquet (MinIO)
+- Enriquecimento: raw_docente + raw_fomentopq (PostgreSQL)
 """
 
-import argparse
 import os
-from pathlib import Path
-from typing import Dict, List, Optional
-
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
+from pathlib import Path
 
-# Carregar variáveis do arquivo .env
-def load_env_file():
-    """Carrega variáveis do arquivo .env"""
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent.parent
-    env_file = project_root / ".env"
+def get_project_root() -> Path:
+    """Encontra o diretório raiz do projeto de forma robusta."""
+    current_path = Path(__file__).resolve()
+    while not (current_path / '.env').exists() and not (current_path / '.git').exists() and current_path.parent != current_path:
+        current_path = current_path.parent
+    return current_path
+
+def get_db_engine(env_path: Path):
+    """Conecta ao PostgreSQL usando variáveis de ambiente."""
+    load_dotenv(dotenv_path=env_path)
     
-    if env_file.exists():
-        with open(env_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    os.environ[key] = value
+    db_user = os.getenv("DB_USER")
+    db_pass = os.getenv("DB_PASS")
+    db_host = os.getenv("DB_HOST")
+    db_port = os.getenv("DB_PORT")
+    db_name = os.getenv("DB_NAME")
 
-# Carregar .env no início
-load_env_file()
+    if not all([db_user, db_pass, db_host, db_port, db_name]):
+        raise ValueError("As variáveis de ambiente do banco de dados não estão configuradas.")
 
-
-DEFAULT_TABLE = "dim_docente"
-
-
-def save_to_postgres(df: pd.DataFrame, table_name: str) -> bool:
-    """Salva o DataFrame na tabela indicada do PostgreSQL."""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5433")
-    database = os.getenv("DB_NAME", "dw_oesnpg")
-    username = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASS", "postgres")
-
-    conn_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
-
+    db_uri = f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}'
     try:
-        print(f"🔗 Conectando ao PostgreSQL: {host}:{port}/{database}")
-        engine = create_engine(conn_string)
-
-        with engine.connect() as conn:
-            row = conn.execute(text("SELECT version()")).fetchone()
-            if row:
-                print(f"✅ Conectado (versão: {row[0][:50]}...)")
-            else:
-                print("✅ Conectado ao PostgreSQL.")
-
-        print(f"💾 Gravando tabela {table_name}...")
-        df.to_sql(
-            table_name,
-            engine,
-            if_exists="replace",
-            index=False,
-            method="multi",
-            chunksize=1000,
-        )
-        print("✅ Dados enviados ao PostgreSQL.")
-        return True
-
-    except Exception as exc:
-        print(f"❌ Erro ao conectar/salvar no PostgreSQL: {exc}")
-        print("💡 Verifique se o banco está disponível e as variáveis de ambiente foram definidas.")
-        return False
-
-
-def get_database_connection():
-    """Cria conexão com PostgreSQL."""
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5433")
-    database = os.getenv("DB_NAME", "dw_oesnpg")
-    username = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASS", "postgres")
-
-    conn_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
-    
-    try:
-        engine = create_engine(conn_string)
-        print(f"🔗 Conectando ao PostgreSQL: {host}:{port}/{database}")
-        
-        with engine.connect() as conn:
-            row = conn.execute(text("SELECT version()")).fetchone()
-            if row:
-                print(f"✅ Conectado (versão: {row[0][:50]}...)")
-        
+        engine = create_engine(db_uri)
+        with engine.connect() as connection:
+            print(f"Conexão com o banco '{db_name}' estabelecida com sucesso.")
         return engine
-        
-    except Exception as exc:
-        raise Exception(f"Erro ao conectar ao PostgreSQL: {exc}")
-
-
-def load_raw_docente_data() -> pd.DataFrame:
-    """Carrega dados da tabela raw_docente."""
-    print("� Carregando dados da tabela raw_docente...")
-    
-    engine = get_database_connection()
-    
-    query = """
-    SELECT 
-        id_pessoa,
-        nm_docente,
-        nr_documento_docente,
-        an_nascimento_docente,
-        ds_faixa_etaria,
-        ds_tipo_nacionalidade_docente,
-        ds_categoria_docente,
-        ds_tipo_vinculo_docente_ies,
-        ds_regime_trabalho,
-        in_doutor,
-        an_titulacao,
-        nm_grau_titulacao,
-        nm_area_basica_titulacao,
-        nm_ies_titulacao,
-        nm_pais_ies_titulacao,
-        cd_cat_bolsa_produtividade,
-        ano_base,
-        created_at
-    FROM raw_docente
-    ORDER BY id_pessoa, ano_base DESC
-    """
-    
-    try:
-        df = pd.read_sql_query(query, engine)
-        print(f"   ✔ {len(df):,} registros carregados da tabela raw_docente")
-        
-        # Normaliza campos de texto
-        for col in df.columns:
-            if df[col].dtype == object:
-                df[col] = df[col].fillna("").astype(str).str.strip()
-        
-        return df
-        
-    except Exception as exc:
-        print(f"   ❌ Erro ao carregar raw_docente: {exc}")
+    except Exception as e:
+        print(f"ERRO: Falha ao conectar com o banco de dados: {e}")
         raise
 
+def load_parquet_from_minio(env_path: Path) -> pd.DataFrame:
+    """
+    Lê um arquivo Parquet do MinIO com base nas variáveis de ambiente.
+    """
+    load_dotenv(dotenv_path=env_path)
 
-def load_raw_fomentopq_data() -> pd.DataFrame:
-    """Carrega dados da tabela raw_fomentopq."""
-    print("💰 Carregando dados da tabela raw_fomentopq...")
+    endpoint = os.getenv("MINIO_ENDPOINT")
+    bucket = os.getenv("MINIO_BUCKET")
+    parquet_path = os.getenv("MINIO_PARQUET_PATH")
+    access_key = os.getenv("MINIO_ACCESS_KEY")
+    secret_key = os.getenv("MINIO_SECRET_KEY")
+
+    if not all([endpoint, bucket, parquet_path, access_key, secret_key]):
+        raise ValueError("As variáveis de ambiente do MinIO não estão configuradas.")
+
+    storage_options = {
+        "key": access_key,
+        "secret": secret_key,
+        "client_kwargs": {"endpoint_url": endpoint},
+    }
+
+    # Caminho completo para o arquivo no MinIO
+    path = f"s3://{bucket}/{parquet_path}/add_docentes.parquet"
     
-    engine = get_database_connection()
+    print(f"Lendo arquivo Parquet do MinIO: {path}")
+    try:
+        df = pd.read_parquet(path, storage_options=storage_options)
+        print(f"Dados carregados com sucesso: {len(df):,} registros.")
+        return df
+    except Exception as e:
+        print(f"ERRO: Falha ao ler o arquivo Parquet do MinIO: {e}")
+        raise
+
+def load_raw_data_from_postgres(engine) -> tuple:
+    """
+    Carrega dados das tabelas raw_docente e raw_fomentopq do PostgreSQL
+    """
+    print("Carregando dados de enriquecimento do PostgreSQL...")
     
-    query = """
+    # Carregar raw_docente
+    print("  - Carregando raw_docente...")
+    df_raw_docente = pd.read_sql_query("""
+    SELECT 
+        id_pessoa,
+        tp_documento_docente as tipo_documento,
+        nr_documento_docente as documento_docente,
+        an_nascimento_docente as ano_nascimento,
+        ds_tipo_nacionalidade_docente as nacionalidade,
+        nm_pais_nacionalidade_docente as pais_nacionalidade,
+        ds_tipo_vinculo_docente_ies as vinculo_ies,
+        nm_ies_titulacao as nome_ies_titulacao,
+        nm_pais_ies_titulacao as pais_titulacao,
+        ano_base as ano_base_mais_recente
+    FROM raw_docente
+    """, engine)
+    
+    # Consolidar raw_docente por id_pessoa (mais recente)
+    df_raw_docente = df_raw_docente.sort_values('ano_base_mais_recente', ascending=False)
+    df_raw_docente = df_raw_docente.drop_duplicates(subset=['id_pessoa'], keep='first')
+    print(f"    ✅ {len(df_raw_docente):,} docentes únicos de raw_docente")
+    
+    # Carregar raw_fomentopq  
+    print("  - Carregando raw_fomentopq...")
+    df_raw_pq = pd.read_sql_query("""
     SELECT 
         id_lattes,
         des_beneficiario as nome_beneficiario,
-        des_pais as nome_pais,
-        des_regiao as nome_regiao,
-        des_uf as nome_uf,
-        des_cidade as nome_cidade,
-        des_grande_area as nome_grande_area,
-        des_area as nome_area,
-        des_subarea as nome_subarea,
-        cod_modalidade,
-        cod_categoria_nivel,
-        des_instituto as nome_instituto,
-        data_inicio_processo,
-        data_termino_processo,
-        created_at
+        cod_categoria_nivel as pq_categoria_nivel,
+        cod_modalidade as pq_modalidade,
+        des_grande_area as pq_grande_area,
+        des_area as pq_area,
+        data_inicio_processo as pq_data_inicio,
+        data_termino_processo as pq_data_termino
     FROM raw_fomentopq
-    ORDER BY des_beneficiario, data_inicio_processo
+    WHERE id_lattes IS NOT NULL AND id_lattes != ''
+    """, engine)
+    
+    # Consolidar raw_fomentopq por id_lattes (mais recente)
+    df_raw_pq = df_raw_pq.sort_values('pq_data_inicio', ascending=False)
+    df_raw_pq = df_raw_pq.drop_duplicates(subset=['id_lattes'], keep='first')
+    print(f"    ✅ {len(df_raw_pq):,} bolsistas PQ únicos de raw_fomentopq")
+    
+    return df_raw_docente, df_raw_pq
+
+def create_enriched_docente_dimension(df_base: pd.DataFrame, df_raw_docente: pd.DataFrame, df_raw_pq: pd.DataFrame) -> pd.DataFrame:
     """
-    
-    try:
-        df = pd.read_sql_query(query, engine)
-        print(f"   ✔ {len(df):,} registros carregados da tabela raw_fomentopq")
-        
-        # Normaliza campos de texto
-        for col in df.columns:
-            if df[col].dtype == object:
-                df[col] = df[col].fillna("").astype(str).str.strip()
-        
-        return df
-        
-    except Exception as exc:
-        print(f"   ⚠️ Erro ao carregar raw_fomentopq: {exc}")
-        print("   📝 Continuando sem dados de fomento PQ...")
-        return pd.DataFrame()
+    Transforma o DataFrame base do parquet e enriquece com dados raw do PostgreSQL
+    """
+    print("Processando dados para criar a dimensão consolidada...")
 
+    # 1. Processar dados base do parquet (como antes)
+    column_mapping = {
+        'ID_PESSOA': 'id_pessoa',
+        'NM_DOCENTE': 'des_docente',
+        'DS_CATEGORIA_DOCENTE': 'des_categoria_docente',
+        'DS_REGIME_TRABALHO': 'des_regime_trabalho',
+        'DS_FAIXA_ETARIA': 'des_faixa_etaria',
+        'TP_SEXO_DOCENTE': 'cs_sexo',
+        'IN_DOUTOR': 'in_doutor',
+        'AN_TITULACAO': 'an_titulacao',
+        'NM_GRAU_TITULACAO': 'des_grau_titulacao',
+        'NM_AREA_BASICA_TITULACAO': 'des_area_titulacao',
+        'SG_IES_TITULACAO': 'sg_ies_titulacao',
+        'CD_CAT_BOLSA_PRODUTIVIDADE': 'cod_bolsa_produtividade',
+        'IN_COORDENADOR_PPG': 'in_coordenador_ppg',
+        'ID_LATTES': 'id_lattes'  # Incluir ID_LATTES se existir
+    }
+    
+    # Filtrar apenas colunas que existem no DataFrame
+    available_columns = [col for col in column_mapping.keys() if col in df_base.columns]
+    df_dim = df_base[available_columns].copy()
+    df_dim.rename(columns={k: column_mapping[k] for k in available_columns}, inplace=True)
 
-def create_docente_dimension(df_docente: pd.DataFrame, df_fomento: pd.DataFrame) -> pd.DataFrame:
-    """Cria a dimensão de docentes integrando dados de docentes e fomento PQ."""
+    # Processar campos booleanos
+    if 'in_doutor' in df_dim.columns:
+        df_dim['bl_doutor'] = df_dim['in_doutor'].str.upper().map({'SIM': True, 'NÃO': False}).fillna(False).astype(bool)
+        df_dim.drop(columns=['in_doutor'], inplace=True)
     
-    print("🔄 Criando dimensão de docentes...")
+    if 'in_coordenador_ppg' in df_dim.columns:
+        df_dim['bl_coordenador_ppg'] = df_dim['in_coordenador_ppg'].str.upper().map({'SIM': True, 'NÃO': False}).fillna(False).astype(bool)
+        df_dim.drop(columns=['in_coordenador_ppg'], inplace=True)
     
-    # 1. Agrupa docentes por id_pessoa para obter dados únicos por docente
-    print("   📋 Agregando dados por docente...")
+    # Bolsa PQ inicial (será enriquecida depois)
+    if 'cod_bolsa_produtividade' in df_dim.columns:
+        df_dim['bl_bolsa_pq_original'] = df_dim['cod_bolsa_produtividade'].notna() & (df_dim['cod_bolsa_produtividade'] != '')
+    else:
+        df_dim['bl_bolsa_pq_original'] = False
+
+    # Agrupar por id_pessoa (manter primeiro registro)
+    df_dim = df_dim.drop_duplicates(subset=['id_pessoa'], keep='first').reset_index(drop=True)
+    print(f"  ✅ Base processada: {len(df_dim):,} docentes únicos do parquet")
+
+    # 2. ENRIQUECER: Merge com raw_docente
+    print("  - Enriquecendo com raw_docente...")
+    df_enriched = pd.merge(df_dim, df_raw_docente, on='id_pessoa', how='left')
     
-    # Seleciona o registro mais recente por docente
-    df_docente_sorted = df_docente.sort_values(['id_pessoa', 'ano_base'], ascending=[True, False])
-    df_docentes_unicos = df_docente_sorted.drop_duplicates(subset=['id_pessoa'], keep='first')
-    
-    print(f"   ✔ {len(df_docentes_unicos):,} docentes únicos identificados")
-    
-    # 2. Preparar dados de fomento PQ se disponíveis
-    fomento_dict = {}
-    if not df_fomento.empty:
-        print("   💰 Processando dados de fomento PQ...")
+    matches_raw = len(df_enriched[df_enriched['tipo_documento'].notna()])
+    print(f"    ✅ {matches_raw:,} docentes enriquecidos com raw_docente")
+
+    # 3. ENRIQUECER: Merge com raw_fomentopq (por id_lattes se disponível)
+    if 'id_lattes' in df_enriched.columns:
+        print("  - Enriquecendo com raw_fomentopq via id_lattes...")
+        df_enriched = pd.merge(df_enriched, df_raw_pq, on='id_lattes', how='left')
+        matches_pq = len(df_enriched[df_enriched['pq_categoria_nivel'].notna()])
+        print(f"    ✅ {matches_pq:,} docentes enriquecidos com bolsa PQ")
+    else:
+        print("  - Tentando enriquecer com raw_fomentopq via nome...")
+        # Normalizar nomes para match aproximado
+        def normalize_name(name):
+            if pd.isna(name):
+                return ""
+            return str(name).upper().strip()
         
-        # Agrupa fomento por beneficiário (pode ter múltiplas bolsas)
-        fomento_agregado = df_fomento.groupby('nome_beneficiario').agg({
-            'id_lattes': 'first',
-            'cod_categoria_nivel': lambda x: ', '.join(sorted(set(x))),
-            'cod_modalidade': 'first',
-            'nome_grande_area': 'first',
-            'nome_area': 'first',
-            'data_inicio_processo': 'min',  # Primeira bolsa
-            'data_termino_processo': 'max',  # Última bolsa
-        }).reset_index()
+        df_enriched['nome_normalizado'] = df_enriched['des_docente'].apply(normalize_name)
+        df_raw_pq['nome_normalizado'] = df_raw_pq['nome_beneficiario'].apply(normalize_name)
         
-        # Cria dicionário para lookup por nome
-        for _, row in fomento_agregado.iterrows():
-            nome_norm = row['nome_beneficiario'].upper().strip()
-            fomento_dict[nome_norm] = {
-                'id_lattes': row['id_lattes'],
-                'pq_categoria_nivel': row['cod_categoria_nivel'],
-                'pq_modalidade': row['cod_modalidade'],
-                'pq_grande_area': row['nome_grande_area'],
-                'pq_area': row['nome_area'],
-                'pq_data_inicio': row['data_inicio_processo'],
-                'pq_data_termino': row['data_termino_processo'],
-                'tem_bolsa_pq': 'S'
-            }
+        df_enriched = pd.merge(
+            df_enriched, 
+            df_raw_pq[['nome_normalizado', 'id_lattes', 'pq_categoria_nivel', 'pq_modalidade', 
+                      'pq_grande_area', 'pq_area', 'pq_data_inicio', 'pq_data_termino']], 
+            on='nome_normalizado', 
+            how='left'
+        )
+        df_enriched.drop('nome_normalizado', axis=1, inplace=True)
         
-        print(f"   ✔ {len(fomento_dict):,} beneficiários PQ processados")
+        matches_pq = len(df_enriched[df_enriched['pq_categoria_nivel'].notna()])
+        print(f"    ✅ {matches_pq:,} docentes enriquecidos com bolsa PQ (por nome)")
+
+    # 4. CONSOLIDAR campos finais
+    print("  - Consolidando campos finais...")
     
-    # 3. Criar registros da dimensão
-    print("   🏗️ Construindo dimensão...")
+    # Consolidar informação de bolsa PQ
+    df_enriched['bl_bolsa_pq'] = (
+        df_enriched['bl_bolsa_pq_original'].fillna(False) | 
+        df_enriched['pq_categoria_nivel'].notna()
+    )
     
-    dim_records = []
+    # Tratar campos de data
+    for col in ['pq_data_inicio', 'pq_data_termino']:
+        if col in df_enriched.columns:
+            df_enriched[col] = pd.to_datetime(df_enriched[col], errors='coerce')
     
-    # Registro 0: Desconhecido
-    dim_records.append({
+    # Garantir que campos obrigatórios existam
+    if 'bl_doutor' not in df_enriched.columns:
+        df_enriched['bl_doutor'] = False
+    if 'bl_coordenador_ppg' not in df_enriched.columns:
+        df_enriched['bl_coordenador_ppg'] = False
+
+    # 5. Adicionar chave surrogate
+    df_enriched.reset_index(drop=True, inplace=True)
+    df_enriched['sk_docente'] = range(1, len(df_enriched) + 1)
+    
+    # 6. Adicionar registro SK=0 para 'Desconhecido'
+    sk0_record = pd.DataFrame([{
         'sk_docente': 0,
-        'id_pessoa': None,
-        'nome_docente': 'Desconhecido',
-        'documento_docente': None,
-        'ano_nascimento': None,
-        'faixa_etaria': 'Desconhecido',
-        'nacionalidade': 'Desconhecido',
-        'categoria_docente': 'Desconhecido',
-        'vinculo_ies': 'Desconhecido',
-        'regime_trabalho': 'Desconhecido',
+        'id_pessoa': 0,
+        'des_docente': 'Desconhecido',
         'bl_doutor': False,
-        'ano_titulacao': None,
-        'grau_titulacao': 'Desconhecido',
-        'area_titulacao': 'Desconhecido',
-        'ies_titulacao': 'Desconhecido',
-        'pais_titulacao': 'Desconhecido',
-        'tem_bolsa_produtividade': 'Desconhecido',
-        'categoria_bolsa_produtividade': 'Desconhecido',
-        # Campos de fomento PQ
-        'id_lattes': None,
-        'pq_categoria_nivel': None,
-        'pq_modalidade': None,
-        'pq_grande_area': None,
-        'pq_area': None,
-        'pq_data_inicio': None,
-        'pq_data_termino': None,
-        'tem_bolsa_pq': 'N',
-        'ano_base_mais_recente': None
-    })
+        'bl_bolsa_pq': False,
+        'bl_coordenador_ppg': False
+    }])
     
-    # Registros dos docentes
-    sk_counter = 1
-    for idx, row in df_docentes_unicos.iterrows():
-        
-        # Busca dados de fomento PQ por nome
-        nome_norm = str(row['nm_docente']).upper().strip()
-        dados_pq = fomento_dict.get(nome_norm, {})
-        
-        # Verifica se tem bolsa de produtividade nos dados de docentes
-        tem_bolsa_capes = 'S' if (pd.notna(row['cd_cat_bolsa_produtividade']) and 
-                                  str(row['cd_cat_bolsa_produtividade']).strip() != '') else 'N'
-        
-        # Converte campos numéricos
-        try:
-            ano_nascimento = int(row['an_nascimento_docente']) if pd.notna(row['an_nascimento_docente']) and str(row['an_nascimento_docente']).strip() != '' else None
-        except:
-            ano_nascimento = None
-            
-        try:
-            ano_titulacao = int(row['an_titulacao']) if pd.notna(row['an_titulacao']) and str(row['an_titulacao']).strip() != '' else None
-        except:
-            ano_titulacao = None
-            
-        try:
-            ano_base = int(row['ano_base']) if pd.notna(row['ano_base']) and str(row['ano_base']).strip() != '' else None
-        except:
-            ano_base = None
-        
-        # Converte campo booleano de doutor
-        bl_doutor = True if str(row['in_doutor']).upper().strip() == 'S' else False
-        
-        dim_record = {
-            'sk_docente': sk_counter,  # SK inicia em 1 (0 é para desconhecido)
-            'id_pessoa': row['id_pessoa'],
-            'nome_docente': row['nm_docente'],
-            'documento_docente': row['nr_documento_docente'],
-            'ano_nascimento': ano_nascimento,
-            'faixa_etaria': row['ds_faixa_etaria'],
-            'nacionalidade': row['ds_tipo_nacionalidade_docente'],
-            'categoria_docente': row['ds_categoria_docente'],
-            'vinculo_ies': row['ds_tipo_vinculo_docente_ies'],
-            'regime_trabalho': row['ds_regime_trabalho'],
-            'bl_doutor': bl_doutor,
-            'ano_titulacao': ano_titulacao,
-            'grau_titulacao': row['nm_grau_titulacao'],
-            'area_titulacao': row['nm_area_basica_titulacao'],
-            'ies_titulacao': row['nm_ies_titulacao'],
-            'pais_titulacao': row['nm_pais_ies_titulacao'],
-            'tem_bolsa_produtividade': tem_bolsa_capes,
-            'categoria_bolsa_produtividade': row['cd_cat_bolsa_produtividade'],
-            # Campos de fomento PQ
-            'id_lattes': dados_pq.get('id_lattes'),
-            'pq_categoria_nivel': dados_pq.get('pq_categoria_nivel'),
-            'pq_modalidade': dados_pq.get('pq_modalidade'),
-            'pq_grande_area': dados_pq.get('pq_grande_area'),
-            'pq_area': dados_pq.get('pq_area'),
-            'pq_data_inicio': dados_pq.get('pq_data_inicio'),
-            'pq_data_termino': dados_pq.get('pq_data_termino'),
-            'tem_bolsa_pq': dados_pq.get('tem_bolsa_pq', 'N'),
-            'ano_base_mais_recente': ano_base
-        }
-        
-        dim_records.append(dim_record)
-        sk_counter += 1
+    final_dim = pd.concat([sk0_record, df_enriched], ignore_index=True)
     
-    df_dim = pd.DataFrame(dim_records)
+    # 7. Organizar colunas finais
+    priority_cols = [
+        'sk_docente', 'id_pessoa', 'des_docente', 'des_categoria_docente', 
+        'des_regime_trabalho', 'des_faixa_etaria', 'cs_sexo', 'bl_doutor', 
+        'an_titulacao', 'des_grau_titulacao', 'des_area_titulacao', 'sg_ies_titulacao',
+        'bl_bolsa_pq', 'cod_bolsa_produtividade', 'bl_coordenador_ppg'
+    ]
     
-    print(f"   ✔ Dimensão criada com {len(df_dim):,} registros")
+    # Adicionar colunas de enriquecimento
+    enrichment_cols = [
+        'id_lattes', 'tipo_documento', 'documento_docente', 'ano_nascimento',
+        'nacionalidade', 'pais_nacionalidade', 'vinculo_ies', 'nome_ies_titulacao',
+        'pais_titulacao', 'pq_categoria_nivel', 'pq_modalidade', 'pq_grande_area',
+        'pq_area', 'pq_data_inicio', 'pq_data_termino', 'ano_base_mais_recente'
+    ]
     
-    return df_dim
+    # Selecionar apenas colunas que existem
+    all_cols = priority_cols + enrichment_cols
+    final_cols = [col for col in all_cols if col in final_dim.columns]
+    final_dim = final_dim[final_cols]
+    
+    print(f"  ✅ Dimensão consolidada: {len(final_dim):,} registros com {len(final_dim.columns)} colunas")
+    return final_dim
 
+def save_to_postgres(df: pd.DataFrame, engine, table_name: str):
+    """Salva o DataFrame final no PostgreSQL."""
+    print(f"Salvando dimensão na tabela 'public.{table_name}'...")
+    try:
+        df.to_sql(
+            table_name,
+            engine,
+            if_exists='replace',
+            index=False,
+            method='multi'
+        )
+        print("Dimensão salva com sucesso!")
+    except Exception as e:
+        print(f"ERRO: Falha ao salvar a dimensão: {e}")
+        raise
 
 def main():
-    parser = argparse.ArgumentParser(description="Gera a dimensão de docentes (dim_docente)")
-    parser.add_argument("--postgres", action="store_true", 
-                       help="Envia a tabela também para o PostgreSQL")
-    parser.add_argument("--table", default=DEFAULT_TABLE,
-                       help=f"Nome da tabela destino no PostgreSQL (default: {DEFAULT_TABLE})")
+    """Função principal para orquestrar a criação da dimensão consolidada."""
+    TABLE_NAME = 'dim_docente'
     
-    args = parser.parse_args()
-    
-    print("👨‍🏫 === GERAÇÃO DA DIMENSÃO DOCENTES ===")
-    
-    try:
-        # 1. Carregar dados de docentes
-        df_docente = load_raw_docente_data()
-        
-        # 2. Carregar dados de fomento PQ
-        df_fomento = load_raw_fomentopq_data()
-        
-        # 3. Criar dimensão
-        df_dim_docente = create_docente_dimension(df_docente, df_fomento)
-        
-        # 4. Relatório final
-        print("\n📊 Estatísticas da dimensão:")
-        print(f"   • Total de registros: {len(df_dim_docente):,}")
-        print(f"   • Docentes com bolsa CAPES: {len(df_dim_docente[df_dim_docente['tem_bolsa_produtividade'] == 'S']):,}")
-        print(f"   • Docentes com bolsa PQ: {len(df_dim_docente[df_dim_docente['tem_bolsa_pq'] == 'S']):,}")
-        print(f"   • Doutores: {len(df_dim_docente[df_dim_docente['bl_doutor'] == True]):,}")
-        
-        # 5. Amostra dos dados
-        print("\n📋 Amostra dos dados:")
-        sample_cols = ['sk_docente', 'nome_docente', 'categoria_docente', 'bl_doutor', 'tem_bolsa_pq']
-        print(df_dim_docente[sample_cols].head())
-        
-        # 6. Salvar no PostgreSQL se solicitado
-        if args.postgres:
-            save_to_postgres(df_dim_docente, args.table)
-        else:
-            print("💡 Use --postgres para enviar a tabela ao banco.")
-            print("💡 Dados processados apenas em memória (sem geração de arquivos).")
-        
-    except Exception as exc:
-        print(f"❌ Erro durante o processamento: {exc}")
-        return 1
-    
-    return 0
+    print(f"INICIANDO GERAÇÃO DA DIMENSÃO CONSOLIDADA {TABLE_NAME.upper()}")
+    print("=" * 70)
+    print("Estratégia: add_docentes.parquet (base) + raw_docente + raw_fomentopq")
 
+    try:
+        project_root = get_project_root()
+        
+        # 1. Conectar ao banco de dados
+        engine = get_db_engine(project_root / '.env')
+        
+        # 2. Ler dados base do MinIO
+        df_base = load_parquet_from_minio(project_root / '.env')
+        
+        # 3. Carregar dados de enriquecimento do PostgreSQL
+        df_raw_docente, df_raw_pq = load_raw_data_from_postgres(engine)
+        
+        # 4. Criar a dimensão consolidada
+        dim_docente = create_enriched_docente_dimension(df_base, df_raw_docente, df_raw_pq)
+        
+        # 5. Salvar a dimensão no PostgreSQL
+        save_to_postgres(dim_docente, engine, table_name=TABLE_NAME)
+        
+        # 6. Exibir preview e estatísticas
+        print("\nPreview da dimensão consolidada:")
+        print(dim_docente.head())
+        
+        print("\nEstatísticas da dimensão:")
+        print(f"  - Total de registros: {len(dim_docente):,}")
+        print(f"  - Doutores: {dim_docente['bl_doutor'].sum():,}")
+        print(f"  - Bolsistas PQ: {dim_docente['bl_bolsa_pq'].sum():,}")
+        if 'bl_coordenador_ppg' in dim_docente.columns:
+            print(f"  - Coordenadores de PPG: {dim_docente['bl_coordenador_ppg'].sum():,}")
+        
+        # Estatísticas de enriquecimento
+        if 'tipo_documento' in dim_docente.columns:
+            enriquecidos = len(dim_docente[dim_docente['tipo_documento'].notna() & (dim_docente['tipo_documento'] != '')])
+            print(f"  - Enriquecidos com raw_docente: {enriquecidos:,} ({enriquecidos/len(dim_docente)*100:.1f}%)")
+            
+        if 'pq_categoria_nivel' in dim_docente.columns:
+            com_pq = len(dim_docente[dim_docente['pq_categoria_nivel'].notna()])
+            print(f"  - Enriquecidos com raw_fomentopq: {com_pq:,} ({com_pq/len(dim_docente)*100:.1f}%)")
+
+        print("\n🎉 DIMENSÃO CONSOLIDADA CRIADA COM SUCESSO!")
+        print("Fontes: add_docentes.parquet + raw_docente + raw_fomentopq")
+
+    except Exception as e:
+        print(f"\nO processo falhou. Motivo: {e}")
+        raise e
+    
+    print("\nProcesso concluído.")
 
 if __name__ == "__main__":
-    exit(main())
+    main()
