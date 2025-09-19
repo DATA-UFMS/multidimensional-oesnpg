@@ -11,8 +11,9 @@ SCHEMA_ALVO = 'public'
 TABELAS_PARA_CONVERTER = [
     ##"dim_tempo",
     ##"dim_localidade",
-    "dim_docente"
-    ##"dim_tema"
+    ##"dim_ies",
+    ##"dim_tema",
+    "dim_ppg"
 ]
 PASTA_SAIDA_LOCAL = 'parquet_output'
 

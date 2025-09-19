@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 """
-Geração da Dimensão de IES (dim_ies) a partir de um arquivo Parquet no MinIO.
+Geração da Dimensão de IES (dim_ies) a partir de add_docentes.parquet no MinIO.
 
 Este script lê o arquivo 'add_docentes.parquet' do MinIO, extrai e desduplica
-as informações das Instituições de Ensino Superior (IES) para criar uma dimensão
-limpa e a salva no banco de dados PostgreSQL.
+as informações INSTITUCIONAIS PURAS das Instituições de Ensino Superior (IES) 
+para criar uma dimensão limpa e a salva no banco de dados PostgreSQL.
+
+CARACTERÍSTICAS INCLUÍDAS:
+- Identificação institucional (código CAPES, sigla, nome, CNPJ)
+- Status jurídico e dependência administrativa
+- Localização geográfica (região, UF, município, país)
+- Metadados de origem (vínculo/titulação)
+
+CARACTERÍSTICAS EXCLUÍDAS:
+- Dados de programas de pós-graduação (pertencem à dim_ppg)
+- Dados de titulação de docentes (pertencem à dim_docente)
+- Dados de relacionamento docente-IES (pertencem à tabela fato)
 """
 
 import os
@@ -78,53 +89,213 @@ def load_parquet_from_minio(env_path: Path) -> pd.DataFrame:
 def create_ies_dimension(df_raw: pd.DataFrame) -> pd.DataFrame:
     """
     Transforma o DataFrame bruto na dimensão de IES final.
+    Garante que cada IES seja uma tupla única consolidando APENAS dados institucionais.
+    
+    🇧🇷 IMPORTANTE: 
+    - Exclui dados de titulação, PPG e relacionamentos docente-IES
+    - Filtra APENAS IES BRASILEIRAS (remove IES internacionais de titulação)
+    - Desduplicação por NOME da IES (des_ies) priorizando registros com MENOS valores nulos
     """
     print("Processando dados para criar a dimensão de IES...")
+    print(f"Registros de entrada: {len(df_raw):,}")
 
-    # 1. Selecionar e renomear colunas relevantes para IES
-    column_mapping = {
+    # 1. Extrair IES de VÍNCULO (onde o docente trabalha atualmente)
+    # APENAS características INSTITUCIONAIS PURAS da IES (sem relacionamentos docente-IES)
+    ies_vinculo_cols = [
+        'CD_ENTIDADE_CAPES',             # Código da entidade CAPES
+        'SG_ENTIDADE_ENSINO',            # Sigla da entidade de ensino
+        'NM_ENTIDADE_ENSINO',            # Nome da entidade de ensino
+        'NR_CNPJ_IES',                   # CNPJ da IES
+        'CS_STATUS_JURIDICO',            # Status jurídico
+        'DS_DEPENDENCIA_ADMINISTRATIVA', # Dependência administrativa
+        'NM_REGIAO',                     # Região
+        'SG_UF_PROGRAMA',                # UF do programa
+        'NM_MUNICIPIO_PROGRAMA_IES',     # Município do programa IES
+        'CD_IBGE_PROGRAMA_IES'           # Código IBGE do município do programa
+    ]
+    
+    # Verificar quais colunas existem no DataFrame
+    available_vinculo_cols = [col for col in ies_vinculo_cols if col in df_raw.columns]
+    print(f"Colunas de vínculo disponíveis: {available_vinculo_cols}")
+    
+    df_ies_vinculo = df_raw[available_vinculo_cols].copy()
+    df_ies_vinculo.rename(columns={
         'CD_ENTIDADE_CAPES': 'cod_entidade_capes',
         'SG_ENTIDADE_ENSINO': 'sg_ies',
         'NM_ENTIDADE_ENSINO': 'des_ies',
+        'NR_CNPJ_IES': 'nr_cnpj_ies',
         'CS_STATUS_JURIDICO': 'des_status_juridico',
         'DS_DEPENDENCIA_ADMINISTRATIVA': 'des_dependencia_adm',
         'NM_REGIAO': 'des_regiao',
         'SG_UF_PROGRAMA': 'sg_uf',
-        'NM_MUNICIPIO_PROGRAMA_IES': 'des_municipio'
-    }
+        'NM_MUNICIPIO_PROGRAMA_IES': 'des_municipio_programa',
+        'CD_IBGE_PROGRAMA_IES': 'cod_ibge_municipio'
+    }, inplace=True)
+
+    # 2. Extrair IES de TITULAÇÃO (onde o docente se formou)
+    # APENAS características INSTITUCIONAIS da IES de titulação
+    ies_titulacao_cols = [
+        'SG_IES_TITULACAO',              # Sigla da IES de titulação
+        'NM_IES_TITULACAO',              # Nome da IES de titulação
+        'NM_PAIS_IES_TITULACAO'          # País da IES de titulação (usado apenas para filtro)
+    ]
     
-    df_ies = df_raw[list(column_mapping.keys())].copy()
-    df_ies.rename(columns=column_mapping, inplace=True)
+    available_titulacao_cols = [col for col in ies_titulacao_cols if col in df_raw.columns]
+    print(f"Colunas de titulação disponíveis: {available_titulacao_cols}")
+    
+    if available_titulacao_cols:
+        df_ies_titulacao = df_raw[available_titulacao_cols].copy()
+        
+        # 🇧🇷 FILTRAR APENAS IES BRASILEIRAS ANTES DE RENOMEAR
+        # Manter apenas IES onde país é nulo/vazio OU explicitamente Brasil
+        print(f"IES de titulação antes do filtro brasileiro: {len(df_ies_titulacao):,}")
+        df_ies_titulacao = df_ies_titulacao[
+            (df_ies_titulacao['NM_PAIS_IES_TITULACAO'].isna()) | 
+            (df_ies_titulacao['NM_PAIS_IES_TITULACAO'] == '') |
+            (df_ies_titulacao['NM_PAIS_IES_TITULACAO'].str.upper().str.contains('BRASIL', na=False))
+        ]
+        print(f"IES de titulação após filtro brasileiro: {len(df_ies_titulacao):,}")
+        
+        # Agora renomear apenas os campos necessários (SEM des_pais)
+        df_ies_titulacao = df_ies_titulacao[['SG_IES_TITULACAO', 'NM_IES_TITULACAO']].copy()
+        df_ies_titulacao.rename(columns={
+            'SG_IES_TITULACAO': 'sg_ies',
+            'NM_IES_TITULACAO': 'des_ies'
+        }, inplace=True)
+        df_ies_titulacao['cod_entidade_capes'] = None  # IES de titulação pode não ter código CAPES
+    else:
+        df_ies_titulacao = pd.DataFrame()
 
-    # 2. Remover duplicatas para ter um registro único por IES
-    # O `cod_entidade_capes` é a chave de negócio perfeita para isso.
-    print(f"Registros antes da desduplicação: {len(df_ies):,}")
-    df_ies = df_ies.drop_duplicates(subset=['cod_entidade_capes']).reset_index(drop=True)
-    print(f"Registros após desduplicação: {len(df_ies):,} IES únicas encontradas.")
+    # 3. Combinar ambos os datasets
+    print(f"IES de vínculo: {len(df_ies_vinculo):,}")
+    print(f"IES de titulação: {len(df_ies_titulacao):,}")
+    
+    if not df_ies_titulacao.empty:
+        # Alinhar colunas para concatenação
+        all_columns = set(df_ies_vinculo.columns) | set(df_ies_titulacao.columns)
+        for col in all_columns:
+            if col not in df_ies_vinculo.columns:
+                df_ies_vinculo[col] = None
+            if col not in df_ies_titulacao.columns:
+                df_ies_titulacao[col] = None
+        
+        df_ies_combined = pd.concat([df_ies_vinculo, df_ies_titulacao], ignore_index=True)
+    else:
+        df_ies_combined = df_ies_vinculo.copy()
 
-    # 3. Adicionar registro SK=0 para 'Desconhecido'
+    print(f"Registros combinados antes da desduplicação: {len(df_ies_combined):,}")
+
+    # 4. Remover registros com dados vazios/nulos nas chaves principais
+    df_ies_combined = df_ies_combined.dropna(subset=['sg_ies', 'des_ies'])
+    df_ies_combined = df_ies_combined[
+        (df_ies_combined['sg_ies'].str.strip() != '') & 
+        (df_ies_combined['des_ies'].str.strip() != '')
+    ]
+    print(f"Após remoção de registros vazios: {len(df_ies_combined):,}")
+
+    # 5. GARANTIR TUPLA ÚNICA: Desduplicar por NOME da IES priorizando registros mais completos
+    # Estratégia: agrupar por des_ies e manter o registro com MENOS valores nulos
+    print("Preparando desduplicação inteligente por NOME da IES (des_ies)...")
+    
+    # Calcular score de completude para cada registro (menos nulos = melhor score)
+    def calculate_completeness_score(row):
+        """Calcula score de completude: quanto menor, melhor (menos nulos)."""
+        null_count = 0
+        for value in row:
+            if pd.isna(value) or value == '' or value is None:
+                null_count += 1
+        return null_count
+    
+    # Adicionar score de completude
+    df_ies_combined['completeness_score'] = df_ies_combined.apply(calculate_completeness_score, axis=1)
+    
+    # Consolidar dados: manter o registro mais completo por NOME da IES
+    def consolidate_ies_by_nome(group):
+        """
+        Consolida múltiplos registros da mesma IES (por des_ies), 
+        priorizando o registro com MENOS valores nulos.
+        """
+        # Ordenar por score de completude (menor = melhor) e pegar o melhor
+        group_sorted = group.sort_values('completeness_score')
+        best_record = group_sorted.iloc[0].copy()
+        
+        # Complementar com dados não-nulos de outros registros
+        for col in group.columns:
+            if col == 'completeness_score':
+                continue  # Pular coluna auxiliar
+                
+            if pd.isna(best_record[col]) or best_record[col] == '' or best_record[col] is None:
+                # Buscar valores não-nulos em outros registros do grupo
+                non_null_values = group[col].dropna()
+                non_null_values = non_null_values[
+                    (non_null_values != '') & 
+                    (non_null_values.notna())
+                ]
+                if not non_null_values.empty:
+                    best_record[col] = non_null_values.iloc[0]
+        
+        return best_record
+
+    print("Consolidando registros duplicados por NOME da IES (priorizando menos nulos)...")
+    df_ies_final = df_ies_combined.groupby('des_ies').apply(consolidate_ies_by_nome).reset_index(drop=True)
+    
+    # Remover coluna auxiliar de score
+    if 'completeness_score' in df_ies_final.columns:
+        df_ies_final = df_ies_final.drop(columns=['completeness_score'])
+    
+    print(f"Após consolidação e desduplicação por NOME da IES: {len(df_ies_final):,} IES únicas")
+
+    # 6. Limpeza final e padronização
+    # Padronizar campos texto
+    text_cols = [
+        'sg_ies', 'des_ies', 'des_regiao', 'des_municipio_programa', 'des_status_juridico', 
+        'des_dependencia_adm'
+    ]
+    for col in text_cols:
+        if col in df_ies_final.columns:
+            df_ies_final[col] = df_ies_final[col].astype(str).str.strip()
+
+    # 7. Adicionar registro SK=0 para 'Desconhecido'
     sk0_record = pd.DataFrame([{
         'sk_ies': 0,
         'cod_entidade_capes': 0,
+        'sg_ies': 'XX',
         'des_ies': 'Desconhecido',
-        'sg_ies': 'XX'
+        'des_regiao': 'Desconhecido',
+        'sg_uf': 'XX',
+        'des_municipio_programa': 'Desconhecido',
+        'des_status_juridico': 'Desconhecido',
+        'des_dependencia_adm': 'Desconhecido'
     }])
     
-    # 4. Gerar a chave substituta (Surrogate Key)
-    df_ies['sk_ies'] = df_ies.index + 1
+    # 8. Gerar a chave substituta (Surrogate Key)
+    df_ies_final['sk_ies'] = df_ies_final.index + 1
     
-    # 5. Concatenar o registro SK=0
-    final_dim = pd.concat([sk0_record, df_ies], ignore_index=True)
+    # 9. Concatenar o registro SK=0
+    final_dim = pd.concat([sk0_record, df_ies_final], ignore_index=True)
     
-    # 6. Reordenar e selecionar colunas finais
+    # 10. Reordenar e selecionar colunas finais - APENAS características INSTITUCIONAIS PURAS
     final_cols = [
-        'sk_ies', 'cod_entidade_capes', 'sg_ies', 'des_ies', 
-        'des_status_juridico', 'des_dependencia_adm', 
-        'des_regiao', 'sg_uf', 'des_municipio'
+        'sk_ies',                           # Chave substituta
+        'cod_entidade_capes',               # Código CAPES da entidade
+        'sg_ies',                           # Sigla da IES
+        'des_ies',                          # Nome da IES
+        
+        # Características institucionais PURAS
+        'des_status_juridico',              # Status jurídico
+        'des_dependencia_adm',              # Dependência administrativa
+        'nr_cnpj_ies',                      # CNPJ da IES
+        
+        # Localização geográfica
+        'des_regiao',                       # Região
+        'sg_uf',                           # UF
+        'des_municipio_programa',           # Município
+        'cod_ibge_municipio'               # Código IBGE do município
     ]
     final_dim = final_dim[[col for col in final_cols if col in final_dim.columns]]
     
     print(f"Dimensão final de IES criada com {len(final_dim):,} registros.")
+    print(f"Total de atributos institucionais puros: {len(final_dim.columns)}")
     return final_dim
 
 def save_to_postgres(df: pd.DataFrame, engine, table_name: str):
@@ -171,11 +342,21 @@ def main():
         
         print("\nEstatísticas da dimensão:")
         print(f"  - Total de registros (IES únicas + SK=0): {len(dim_ies):,}")
+        print(f"  - Total de atributos institucionais puros: {len(dim_ies.columns)}")
         
         # Contagem por dependência administrativa
         if 'des_dependencia_adm' in dim_ies.columns:
-            print("\nContagem por Dependência Administrativa:")
-            print(dim_ies['des_dependencia_adm'].value_counts().to_string())
+            print(f"\n📊 Contagem por Dependência Administrativa:")
+            print(dim_ies['des_dependencia_adm'].value_counts().head(10).to_string())
+
+        # Contagem por região
+        if 'des_regiao' in dim_ies.columns:
+            print(f"\n📊 Contagem por Região:")
+            print(dim_ies['des_regiao'].value_counts().to_string())
+
+        # Confirmação: apenas IES brasileiras
+        print(f"\n🇧🇷 Confirmação: Dimensão contém apenas IES brasileiras")
+        print(f"   Total de IES únicas: {len(dim_ies)-1:,} (+ 1 SK=0)")
 
     except Exception as e:
         print(f"\nO processo falhou. Motivo: {e}")

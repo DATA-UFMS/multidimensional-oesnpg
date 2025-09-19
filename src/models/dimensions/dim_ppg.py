@@ -4,7 +4,7 @@
 =======================================================
 Cria a dimensão dim_ppg baseada nos dados da raw_ppg
 Estrutura: ppg_sk, informações dos Programas de Pós-Graduação
-Data: 21/08/2025
+Data: 19/09/2025 - Atualizada para usar raw_ppg como fonte
 """
 
 import pandas as pd
@@ -13,6 +13,7 @@ import os
 import sys
 from dotenv import load_dotenv
 import logging
+from pathlib import Path
 
 # Adicionar path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,8 +22,16 @@ sys.path.insert(0, project_root)
 
 from src.core.core import get_db_manager
 
+def get_project_root() -> Path:
+    """Encontra o diretório raiz do projeto de forma robusta."""
+    current_path = Path(__file__).resolve()
+    while not (current_path / '.env').exists() and not (current_path / '.git').exists() and current_path.parent != current_path:
+        current_path = current_path.parent
+    return current_path
+
 # Carregar variáveis de ambiente
-load_dotenv()
+project_root_path = get_project_root()
+load_dotenv(dotenv_path=project_root_path / '.env')
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -41,28 +50,29 @@ def carregar_dados_raw_ppg():
             ano_base,
             codigo_capes_da_ies,
             nome_da_ies,
-            "nome_da_região_da_ies" as nome_regiao_ies,
-            "sigla_da_região_da_ies" as sigla_regiao_ies,
+            nome_da_regiao_da_ies,
+            sigla_da_regiao_da_ies,
+            cd_regiao_ibge,
             uf_da_ies,
-            "status_jurídico_da_ies" as status_juridico_ies,
-            "código_do_ppg" as codigo_ppg,
+            status_juridico_da_ies,
+            codigo_do_ppg,
             nome_ppg,
             nota_do_ppg,
-            "modalidade_do_ppg__acadêmico_ou_profissional" as modalidade_ppg,
-            "situação_do_ppg" as situacao_ppg,
-            "programa_em_rede_sim/não" as programa_em_rede,
-            "código_grande_area_do_ppg" as codigo_grande_area,
+            modalidade_do_ppg,
+            situacao_do_ppg,
+            programa_em_rede,
+            codigo_grande_area_do_ppg,
             grande_area_do_ppg,
-            "código_area_de_conhecimento_do_ppg" as codigo_area_conhecimento,
+            codigo_area_de_conhecimento_do_ppg,
             area_de_conhecimento_do_ppg,
-            "id_area_de_avaliação_do_ppg" as id_area_avaliacao,
-            "area_de_avaliação_do_ppg" as area_avaliacao,
+            id_area_de_avaliacao_do_ppg,
+            area_de_avaliacao_do_ppg,
             total_de_cursos_do_ppg,
             quantidade_de_docentes_no_ppg,
             quantidade_de_discentes_matriculados_no_ppg
         FROM raw_ppg
-        WHERE nome_ppg IS NOT NULL
-        ORDER BY nome_ppg;
+        WHERE codigo_do_ppg IS NOT NULL
+        ORDER BY codigo_do_ppg;
         """
         
         df = db.execute_query(query)
@@ -88,17 +98,17 @@ def processar_dataframe_ppg(df):
         df_processed = df.copy()
         
         # 1. Remover duplicatas baseado no código do PPG
-        df_processed = df_processed.drop_duplicates(subset=['codigo_ppg'], keep='first')
+        df_processed = df_processed.drop_duplicates(subset=['codigo_do_ppg'], keep='first')
         logger.info(f"📊 Processando {len(df_processed):,} PPGs únicos (removidas {len(df) - len(df_processed):,} duplicatas)")
         
         # 2. Limpar e padronizar campos de texto
         logger.info("🧹 Limpando e padronizando dados...")
         
         colunas_texto = [
-            'nome_da_ies', 'nome_regiao_ies', 'sigla_regiao_ies', 'uf_da_ies',
-            'status_juridico_ies', 'nome_ppg', 'modalidade_ppg', 'situacao_ppg',
+            'nome_da_ies', 'nome_da_regiao_da_ies', 'sigla_da_regiao_da_ies', 'uf_da_ies',
+            'status_juridico_da_ies', 'nome_ppg', 'modalidade_do_ppg', 'situacao_do_ppg',
             'programa_em_rede', 'grande_area_do_ppg', 'area_de_conhecimento_do_ppg',
-            'area_avaliacao'
+            'area_de_avaliacao_do_ppg'
         ]
         
         for col in colunas_texto:
@@ -109,14 +119,41 @@ def processar_dataframe_ppg(df):
         
         # 3. Tratar campos numéricos
         colunas_numericas = [
-            'ano_base', 'codigo_capes_da_ies', 'codigo_ppg', 'codigo_grande_area',
-            'codigo_area_conhecimento', 'id_area_avaliacao', 'total_de_cursos_do_ppg',
+            'ano_base', 'codigo_capes_da_ies', 'cd_regiao_ibge', 'codigo_grande_area_do_ppg',
+            'codigo_area_de_conhecimento_do_ppg', 'id_area_de_avaliacao_do_ppg', 'total_de_cursos_do_ppg',
             'quantidade_de_docentes_no_ppg', 'quantidade_de_discentes_matriculados_no_ppg'
         ]
         
         for col in colunas_numericas:
             if col in df_processed.columns:
                 df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0).astype(int)
+        
+        # 4. Tratar campo nota_do_ppg (decimal)
+        if 'nota_do_ppg' in df_processed.columns:
+            df_processed['nota_do_ppg'] = pd.to_numeric(df_processed['nota_do_ppg'], errors='coerce').fillna(0.0)
+        
+        # 5. Padronizar valores categóricos
+        if 'modalidade_do_ppg' in df_processed.columns:
+            df_processed['modalidade_do_ppg'] = df_processed['modalidade_do_ppg'].replace({
+                'ACADÊMICO': 'Acadêmico',
+                'PROFISSIONAL': 'Profissional',
+                'ACADEMICO': 'Acadêmico'
+            })
+        
+        if 'programa_em_rede' in df_processed.columns:
+            df_processed['programa_em_rede'] = df_processed['programa_em_rede'].replace({
+                'Não': 'Não',
+                'Sim': 'Sim',
+                'N': 'Não',
+                'S': 'Sim'
+            })
+        
+        logger.info(f"✅ Processamento concluído: {len(df_processed):,} PPGs processados")
+        return df_processed
+        
+    except Exception as e:
+        logger.error(f"❌ Erro durante processamento: {str(e)}")
+        return None
         
         # Tratar nota do PPG (pode ser decimal)
         if 'nota_do_ppg' in df_processed.columns:
@@ -247,7 +284,7 @@ def criar_dimensao_ppg():
         # Inserir registro SK=0
         db.save_dataframe(sk0_data, 'dim_ppg', if_exists='append')
         
-        # 4. Carregar e processar dados de PPG
+        # 4. Carregar e processar dados de PPG da raw_ppg
         df_raw = carregar_dados_raw_ppg()
         if df_raw is None:
             logger.error("❌ Falha ao carregar dados da raw_ppg")
@@ -264,19 +301,19 @@ def criar_dimensao_ppg():
         
         # Mapeamento de colunas
         mapeamento = {
-            'codigo_programa': 'codigo_ppg',
+            'codigo_programa': 'codigo_do_ppg',
             'nome_programa': 'nome_ppg',
             'nota_programa': 'nota_do_ppg',
-            'modalidade': 'modalidade_ppg',
-            'situacao': 'situacao_ppg',
+            'modalidade': 'modalidade_do_ppg',
+            'situacao': 'situacao_do_ppg',
             'programa_em_rede': 'programa_em_rede',
             'ies_vinculada': 'nome_da_ies',
             'codigo_ies': 'codigo_capes_da_ies',
             'uf': 'uf_da_ies',
-            'regiao': 'nome_regiao_ies',
+            'regiao': 'nome_da_regiao_da_ies',
             'area_conhecimento': 'area_de_conhecimento_do_ppg',
             'grande_area': 'grande_area_do_ppg',
-            'area_avaliacao': 'area_avaliacao',
+            'area_avaliacao': 'area_de_avaliacao_do_ppg',
             'total_cursos': 'total_de_cursos_do_ppg',
             'quantidade_docentes': 'quantidade_de_docentes_no_ppg',
             'quantidade_discentes': 'quantidade_de_discentes_matriculados_no_ppg',
