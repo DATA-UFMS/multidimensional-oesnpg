@@ -219,6 +219,41 @@ def criar_dim_discente():
         # 2. Transformar dados
         df_dim = transformar_dados_discente(df_raw)
         
+        # 2.1. Adicionar registro SK=0 para valores desconhecidos
+        logger.info("🔧 Adicionando registro SK=0 para valores desconhecidos...")
+        
+        sk0_record = pd.DataFrame([{
+            'discente_sk': 0,
+            'id_discente': 'UNKNOWN_0',
+            'id_pessoa': 'UNKNOWN_PESSOA_0',
+            'nome_discente': 'DISCENTE DESCONHECIDO',
+            'tipo_documento': 'DESCONHECIDO',
+            'numero_documento': '00000000000',
+            'sexo': 'NÃO INFORMADO',
+            'data_nascimento': pd.NaT,
+            'idade_ano_base': 0,
+            'pais_nacionalidade': 'DESCONHECIDO',
+            'tipo_nacionalidade': 'DESCONHECIDA',
+            'raca_cor': 'NÃO DECLARADO',
+            'necessidade_especial': 'N',
+            'status_ingressante': 'DESCONHECIDO',
+            'grau_academico': 'DESCONHECIDO',
+            'data_matricula': pd.NaT,
+            'situacao_discente': 'DESCONHECIDO',
+            'data_situacao': pd.NaT,
+            'faixa_etaria': 'DESCONHECIDA',
+            'orientador_principal': 'ORIENTADOR DESCONHECIDO',
+            'titulo_tese_dissertacao': 'TÍTULO DESCONHECIDO',
+            'meses_para_titulacao': 0,
+            'id_lattes': 'UNKNOWN_LATTES_0',
+            'ano_base': 0
+        }])
+        
+        # Combinar SK=0 com dados reais
+        df_dim_final = pd.concat([sk0_record, df_dim], ignore_index=True)
+        
+        logger.info(f"✅ Dimensão final criada com {len(df_dim_final):,} registros (incluindo SK=0)")
+        
         # 3. Conectar ao banco
         db = get_db_manager()
         
@@ -229,7 +264,7 @@ def criar_dim_discente():
         DROP TABLE IF EXISTS dim_discente CASCADE;
         
         CREATE TABLE dim_discente (
-            discente_sk SERIAL PRIMARY KEY,
+            discente_sk INTEGER PRIMARY KEY,
             id_discente VARCHAR(50) UNIQUE NOT NULL,
             id_pessoa VARCHAR(50),
             nome_discente VARCHAR(255),
@@ -268,7 +303,7 @@ def criar_dim_discente():
         
         -- Comentários
         COMMENT ON TABLE dim_discente IS 'Dimensão de Discentes do Data Warehouse';
-        COMMENT ON COLUMN dim_discente.discente_sk IS 'Chave surrogate da dimensão discente';
+        COMMENT ON COLUMN dim_discente.discente_sk IS 'Chave surrogate da dimensão discente (0=desconhecido)';
         COMMENT ON COLUMN dim_discente.id_discente IS 'ID natural do discente (CAPES)';
         COMMENT ON COLUMN dim_discente.nome_discente IS 'Nome completo do discente';
         COMMENT ON COLUMN dim_discente.situacao_discente IS 'Situação atual do discente no programa';
@@ -279,8 +314,8 @@ def criar_dim_discente():
         # 5. Inserir dados em lotes
         logger.info("💾 Inserindo dados na dim_discente...")
         
-        # Remover a coluna discente_sk para permitir auto-incremento
-        df_insert = df_dim.drop('discente_sk', axis=1)
+        # Remover a coluna discente_sk para permitir inserção manual
+        df_insert = df_dim_final.copy()
         
         # Processar em lotes para evitar sobrecarga de memória
         chunk_size = 50000
@@ -330,6 +365,22 @@ def criar_dim_discente():
         stats = db.execute_query(stats_query)
         logger.info("📈 Estatísticas da dimensão:")
         for col, val in stats.iloc[0].items():
+            logger.info(f"   {col}: {val}")
+        
+        # Estatísticas excluindo SK=0
+        stats_sem_sk0_query = """
+        SELECT 
+            COUNT(*) as discentes_reais,
+            COUNT(DISTINCT sexo) as sexos_reais,
+            COUNT(DISTINCT situacao_discente) as situacoes_reais,
+            COUNT(DISTINCT grau_academico) as graus_reais
+        FROM dim_discente
+        WHERE discente_sk != 0
+        """
+        
+        stats_reais = db.execute_query(stats_sem_sk0_query)
+        logger.info("📈 Estatísticas dos dados reais (excluindo SK=0):")
+        for col, val in stats_reais.iloc[0].items():
             logger.info(f"   {col}: {val}")
             
         return True

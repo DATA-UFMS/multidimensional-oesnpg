@@ -138,8 +138,44 @@ def salvar_dimensao_ods(df_ods):
     Salva a dimensão ODS no banco de dados PostgreSQL.
     """
     try:
-        # Usar a função salvar_df_bd que é mais robusta
-        salvar_df_bd(df_ods, 'dim_ods')
+        # Criar conexão com o banco
+        from sqlalchemy import create_engine
+        import os
+        from dotenv import load_dotenv
+        
+        load_dotenv()
+        DB_HOST = os.getenv("DB_HOST")
+        DB_NAME = os.getenv("DB_NAME")
+        DB_USER = os.getenv("DB_USER")
+        DB_PASS = os.getenv("DB_PASS")
+        DB_PORT = os.getenv("DB_PORT")
+        
+        url = f'postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+        engine = create_engine(url)
+        
+        with engine.begin() as conn:
+            # Primeiro criar a tabela com estrutura explícita
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS dim_ods (
+                ods_sk INTEGER PRIMARY KEY,
+                ods_numero INTEGER NOT NULL,
+                ods_nome VARCHAR(255) NOT NULL,
+                ods_descricao TEXT,
+                ods_temas_relacionados TEXT,
+                ods_codigo VARCHAR(20) NOT NULL,
+                ods_status VARCHAR(50),
+                ods_categoria VARCHAR(50)
+            );
+            """
+            
+            # Executar a criação da tabela
+            conn.exec_driver_sql(create_table_sql)
+            
+            # Limpar tabela se já existir dados
+            conn.exec_driver_sql("DELETE FROM dim_ods;")
+            
+            # Inserir dados
+            df_ods.to_sql('dim_ods', conn, if_exists='append', index=False)
         print(f"✅ Dimensão ODS salva no PostgreSQL com {len(df_ods)} registros")
             
     except Exception as e:

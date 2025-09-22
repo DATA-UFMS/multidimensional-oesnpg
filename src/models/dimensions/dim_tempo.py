@@ -100,9 +100,35 @@ def salvar_dimensao_tempo(df_tempo):
         url = f'postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
         engine = create_engine(url)
         
-        # Salvar no banco
         with engine.begin() as conn:
-            df_tempo.to_sql('dim_tempo', conn, if_exists='replace', index=False)
+            # Primeiro criar a tabela com estrutura explícita
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS dim_tempo (
+                tempo_sk INTEGER PRIMARY KEY,
+                data_completa DATE NOT NULL,
+                ano INTEGER NOT NULL,
+                semestre INTEGER NOT NULL,
+                trimestre INTEGER NOT NULL,
+                mes INTEGER NOT NULL,
+                nome_mes VARCHAR(20) NOT NULL,
+                dia INTEGER NOT NULL,
+                dia_semana INTEGER NOT NULL,
+                nome_dia_semana VARCHAR(20) NOT NULL,
+                numero_semana INTEGER NOT NULL,
+                dia_ano INTEGER NOT NULL,
+                eh_feriado BOOLEAN DEFAULT FALSE,
+                eh_fim_semana BOOLEAN DEFAULT FALSE
+            );
+            """
+            
+            # Executar a criação da tabela
+            conn.exec_driver_sql(create_table_sql)
+            
+            # Limpar tabela se já existir dados
+            conn.exec_driver_sql("DELETE FROM dim_tempo;")
+            
+            # Inserir dados
+            df_tempo.to_sql('dim_tempo', conn, if_exists='append', index=False)
             print(f"✅ Dimensão tempo salva no PostgreSQL com {len(df_tempo)} registros")
             
     except Exception as e:

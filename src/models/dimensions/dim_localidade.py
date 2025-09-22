@@ -80,10 +80,29 @@ def salvar_dimensao_localidade(df_localidade):
         url = f'postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
         engine = create_engine(url)
         
-        # Salvar no banco
-        print("📝 Salvando no banco...")
         with engine.begin() as conn:
-            df_localidade.to_sql('dim_localidade', conn, if_exists='replace', index=False, schema='public')
+            # Primeiro criar a tabela com estrutura explícita
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS dim_localidade (
+                localidade_sk INTEGER PRIMARY KEY,
+                uf VARCHAR(2) NOT NULL,
+                nome_uf VARCHAR(50) NOT NULL,
+                sigla_uf VARCHAR(2) NOT NULL,
+                regiao VARCHAR(20) NOT NULL,
+                sigla_regiao VARCHAR(2) NOT NULL,
+                latitude DECIMAL(10,7),
+                longitude DECIMAL(10,7)
+            );
+            """
+            
+            # Executar a criação da tabela
+            conn.exec_driver_sql(create_table_sql)
+            
+            # Limpar tabela se já existir dados
+            conn.exec_driver_sql("DELETE FROM dim_localidade;")
+            
+            # Inserir dados
+            df_localidade.to_sql('dim_localidade', conn, if_exists='append', index=False)
         print(f"✅ Dimensão localidade salva no PostgreSQL com {len(df_localidade)} registros")
             
     except Exception as e:

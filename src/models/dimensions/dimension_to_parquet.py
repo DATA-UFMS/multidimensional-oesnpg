@@ -13,7 +13,8 @@ TABELAS_PARA_CONVERTER = [
     ##"dim_localidade",
     ##"dim_ies",
     ##"dim_tema",
-    "dim_ppg"
+    ##"dim_ppg",
+     'dim_discente'
 ]
 PASTA_SAIDA_LOCAL = 'parquet_output'
 

@@ -302,13 +302,36 @@ def save_to_postgres(df: pd.DataFrame, engine, table_name: str):
     """Salva o DataFrame final no PostgreSQL."""
     print(f"Salvando dimensão na tabela 'public.{table_name}'...")
     try:
-        df.to_sql(
-            table_name,
-            engine,
-            if_exists='replace',
-            index=False,
-            method='multi'
-        )
+        with engine.begin() as conn:
+            # Primeiro criar a tabela com estrutura explícita
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS dim_ies (
+                ies_sk INTEGER PRIMARY KEY,
+                cd_ies INTEGER,
+                sg_ies VARCHAR(20),
+                des_ies VARCHAR(255),
+                des_situacao_ies VARCHAR(50),
+                cod_mantenedora INTEGER,
+                des_dependencia_administrativa VARCHAR(100),
+                des_categoria_administrativa VARCHAR(100),
+                des_organizacao_academica VARCHAR(100),
+                cnpj_ies VARCHAR(20),
+                cd_regiao INTEGER,
+                des_regiao VARCHAR(50),
+                sg_uf VARCHAR(2),
+                des_municipio_programa VARCHAR(100),
+                cod_ibge_municipio INTEGER
+            );
+            """
+            
+            # Executar a criação da tabela
+            conn.exec_driver_sql(create_table_sql)
+            
+            # Limpar tabela se já existir dados
+            conn.exec_driver_sql(f"DELETE FROM {table_name};")
+            
+            # Inserir dados
+            df.to_sql(table_name, conn, if_exists='append', index=False, method='multi')
         print("Dimensão salva com sucesso!")
     except Exception as e:
         print(f"ERRO: Falha ao salvar a dimensão: {e}")
