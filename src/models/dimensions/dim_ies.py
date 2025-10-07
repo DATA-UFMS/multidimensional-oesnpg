@@ -23,6 +23,15 @@ import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from pathlib import Path
+# Adicionar o diretório raiz ao path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.utils.naming_conventions import NamingConventions
+from src.validation.data_validator import validate_dimension_data, get_validation_summary
+from src.core.exceptions import DimensionCreationError, DataValidationError
+
 
 def get_project_root() -> Path:
     """Encontra o diretório raiz do projeto de forma robusta."""
@@ -257,7 +266,7 @@ def create_ies_dimension(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     # 7. Adicionar registro SK=0 para 'Desconhecido'
     sk0_record = pd.DataFrame([{
-        'sk_ies': 0,
+        'ies_sk': 0,
         'cod_entidade_capes': 0,
         'sg_ies': 'XX',
         'des_ies': 'Desconhecido',
@@ -269,14 +278,14 @@ def create_ies_dimension(df_raw: pd.DataFrame) -> pd.DataFrame:
     }])
     
     # 8. Gerar a chave substituta (Surrogate Key)
-    df_ies_final['sk_ies'] = df_ies_final.index + 1
+    df_ies_final['ies_sk'] = df_ies_final.index + 1
     
     # 9. Concatenar o registro SK=0
     final_dim = pd.concat([sk0_record, df_ies_final], ignore_index=True)
     
     # 10. Reordenar e selecionar colunas finais - APENAS características INSTITUCIONAIS PURAS
     final_cols = [
-        'sk_ies',                           # Chave substituta
+        'ies_sk',                           # Chave substituta
         'cod_entidade_capes',               # Código CAPES da entidade
         'sg_ies',                           # Sigla da IES
         'des_ies',                          # Nome da IES

@@ -16,6 +16,15 @@ import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from pathlib import Path
+# Adicionar o diretório raiz ao path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.utils.naming_conventions import NamingConventions
+from src.validation.data_validator import validate_dimension_data, get_validation_summary
+from src.core.exceptions import DimensionCreationError, DataValidationError
+
 
 def get_project_root() -> Path:
     """Encontra o diretório raiz do projeto de forma robusta."""
@@ -237,11 +246,11 @@ def create_enriched_docente_dimension(df_base: pd.DataFrame, df_raw_docente: pd.
 
     # 5. Adicionar chave surrogate
     df_enriched.reset_index(drop=True, inplace=True)
-    df_enriched['sk_docente'] = range(1, len(df_enriched) + 1)
+    df_enriched['docente_sk'] = range(1, len(df_enriched) + 1)
     
     # 6. Adicionar registro SK=0 para 'Desconhecido'
     sk0_record = pd.DataFrame([{
-        'sk_docente': 0,
+        'docente_sk': 0,
         'id_pessoa': 0,
         'des_docente': 'Desconhecido',
         'bl_doutor': False,
@@ -253,7 +262,7 @@ def create_enriched_docente_dimension(df_base: pd.DataFrame, df_raw_docente: pd.
     
     # 7. Organizar colunas finais
     priority_cols = [
-        'sk_docente', 'id_pessoa', 'des_docente', 'des_categoria_docente', 
+        'docente_sk', 'id_pessoa', 'des_docente', 'des_categoria_docente', 
         'des_regime_trabalho', 'des_faixa_etaria', 'cs_sexo', 'bl_doutor', 
         'an_titulacao', 'des_grau_titulacao', 'des_area_titulacao', 'sg_ies_titulacao',
         'bl_bolsa_pq', 'cod_bolsa_produtividade', 'bl_coordenador_ppg'

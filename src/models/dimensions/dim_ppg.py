@@ -3,7 +3,7 @@
 🎓 DIMENSÃO PPG - Data Warehouse Observatório CAPES
 =======================================================
 Cria a dimensão dim_ppg baseada nos dados da raw_ppg
-Estrutura: ppg_sk, informações dos Programas de Pós-Graduação
+Estrutura: sk, informações dos Programas de Pós-Graduação
 Data: 19/09/2025 - Atualizada para usar raw_ppg como fonte
 """
 
@@ -14,6 +14,15 @@ import sys
 from dotenv import load_dotenv
 import logging
 from pathlib import Path
+# Adicionar o diretório raiz ao path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.utils.naming_conventions import NamingConventions
+from src.validation.data_validator import validate_dimension_data, get_validation_summary
+from src.core.exceptions import DimensionCreationError, DataValidationError
+
 
 # Adicionar path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -232,7 +241,7 @@ def criar_dimensao_ppg():
         logger.info("🏗️  Criando nova estrutura dim_ppg...")
         create_sql = """
         CREATE TABLE dim_ppg (
-            ppg_sk SERIAL PRIMARY KEY,
+            sk SERIAL PRIMARY KEY,
             codigo_programa VARCHAR(50),
             nome_programa VARCHAR(500),
             nota_programa DECIMAL(3,1),
@@ -389,7 +398,7 @@ def validar_dimensao_ppg():
             regiao,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE ppg_sk > 0
+        WHERE sk > 0
         GROUP BY regiao
         ORDER BY qtd_ppg DESC;
         """
@@ -403,7 +412,7 @@ def validar_dimensao_ppg():
             modalidade,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE ppg_sk > 0
+        WHERE sk > 0
         GROUP BY modalidade
         ORDER BY qtd_ppg DESC;
         """
@@ -417,7 +426,7 @@ def validar_dimensao_ppg():
             situacao,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE ppg_sk > 0
+        WHERE sk > 0
         GROUP BY situacao
         ORDER BY qtd_ppg DESC;
         """
@@ -431,7 +440,7 @@ def validar_dimensao_ppg():
             grande_area,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE ppg_sk > 0
+        WHERE sk > 0
         GROUP BY grande_area
         ORDER BY qtd_ppg DESC
         LIMIT 10;
@@ -446,7 +455,7 @@ def validar_dimensao_ppg():
             nota_programa,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE ppg_sk > 0 AND nota_programa > 0
+        WHERE sk > 0 AND nota_programa > 0
         GROUP BY nota_programa
         ORDER BY nota_programa DESC;
         """

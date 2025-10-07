@@ -3,7 +3,7 @@
 🎓 DIMENSÃO DISCENTE - Data Warehouse Observatório CAPES
 =========================================================
 Cria a dimensão dim_discente baseada nos dados do add_discentes.parquet
-Estrutura: discente_sk, informações dos Discentes de Pós-Graduação
+Estrutura: sk, informações dos Discentes de Pós-Graduação
 Data: 22/09/2025 - Primeira versão baseada em add_discentes.parquet
 """
 
@@ -14,6 +14,15 @@ import sys
 from dotenv import load_dotenv
 import logging
 from pathlib import Path
+# Adicionar o diretório raiz ao path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.utils.naming_conventions import NamingConventions
+from src.validation.data_validator import validate_dimension_data, get_validation_summary
+from src.core.exceptions import DimensionCreationError, DataValidationError
+
 
 # Adicionar path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -303,7 +312,7 @@ def criar_dim_discente():
         
         -- Comentários
         COMMENT ON TABLE dim_discente IS 'Dimensão de Discentes do Data Warehouse';
-        COMMENT ON COLUMN dim_discente.discente_sk IS 'Chave surrogate da dimensão discente (0=desconhecido)';
+        COMMENT ON COLUMN dim_discente.sk IS 'Chave surrogate da dimensão discente (0=desconhecido)';
         COMMENT ON COLUMN dim_discente.id_discente IS 'ID natural do discente (CAPES)';
         COMMENT ON COLUMN dim_discente.nome_discente IS 'Nome completo do discente';
         COMMENT ON COLUMN dim_discente.situacao_discente IS 'Situação atual do discente no programa';
@@ -314,7 +323,7 @@ def criar_dim_discente():
         # 5. Inserir dados em lotes
         logger.info("💾 Inserindo dados na dim_discente...")
         
-        # Remover a coluna discente_sk para permitir inserção manual
+        # Remover a coluna sk para permitir inserção manual
         df_insert = df_dim_final.copy()
         
         # Processar em lotes para evitar sobrecarga de memória
@@ -375,7 +384,7 @@ def criar_dim_discente():
             COUNT(DISTINCT situacao_discente) as situacoes_reais,
             COUNT(DISTINCT grau_academico) as graus_reais
         FROM dim_discente
-        WHERE discente_sk != 0
+        WHERE sk != 0
         """
         
         stats_reais = db.execute_query(stats_sem_sk0_query)

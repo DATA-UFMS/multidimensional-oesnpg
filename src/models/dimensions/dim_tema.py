@@ -13,6 +13,15 @@ from sqlalchemy import create_engine
 from dotenv import load_dotenv
 import argparse
 from pathlib import Path
+# Adicionar o diretório raiz ao path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.insert(0, project_root)
+
+from src.utils.naming_conventions import NamingConventions
+from src.validation.data_validator import validate_dimension_data, get_validation_summary
+from src.core.exceptions import DimensionCreationError, DataValidationError
+
 
 # Mapeamento de UF para garantir consistência
 UF_MAPPING = {
@@ -92,20 +101,20 @@ def create_dimension_from_raw(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     # Adiciona o registro SK=0 para valores desconhecidos
     sk0_record = pd.DataFrame([{
-        'sk_tema': 0, 'macrotema_id': 0, 'macrotema_nome': 'DESCONHECIDO',
+        'tema_sk': 0, 'macrotema_id': 0, 'macrotema_nome': 'DESCONHECIDO',
         'tema_id': 0, 'tema_nome': 'DESCONHECIDO',
         'palavrachave_id': 0, 'palavra_chave': 'DESCONHECIDO',
         'sigla_uf': 'XX'
     }])
     
     df_dim = df_dim.drop_duplicates().reset_index(drop=True)
-    df_dim['sk_tema'] = df_dim.index + 1
+    df_dim['tema_sk'] = df_dim.index + 1
     
     final_dim = pd.concat([sk0_record, df_dim], ignore_index=True)
     
     # Reordena as colunas para o formato final, usando 'sigla_uf'
     final_cols = [
-        'sk_tema',
+        'tema_sk',
         'macrotema_id', 'macrotema_nome',
         'tema_id', 'tema_nome',
         'palavrachave_id', 'palavra_chave',
@@ -151,10 +160,10 @@ def main():
         
         print("\nEstatísticas da dimensão:")
         print(f"  - Total de registros: {len(dim_tema)}")
-        print(f"  - Macrotemas únicos: {dim_tema[dim_tema['sk_tema'] != 0]['macrotema_id'].nunique()}")
-        print(f"  - Temas únicos: {dim_tema[dim_tema['sk_tema'] != 0]['tema_id'].nunique()}")
-        print(f"  - Palavras-chave únicas: {dim_tema[dim_tema['sk_tema'] != 0]['palavrachave_id'].nunique()}")
-        print(f"  - UFs únicas: {dim_tema[dim_tema['sk_tema'] != 0]['sigla_uf'].nunique()}")
+        print(f"  - Macrotemas únicos: {dim_tema[dim_tema['tema_sk'] != 0]['macrotema_id'].nunique()}")
+        print(f"  - Temas únicos: {dim_tema[dim_tema['tema_sk'] != 0]['tema_id'].nunique()}")
+        print(f"  - Palavras-chave únicas: {dim_tema[dim_tema['tema_sk'] != 0]['palavrachave_id'].nunique()}")
+        print(f"  - UFs únicas: {dim_tema[dim_tema['tema_sk'] != 0]['sigla_uf'].nunique()}")
 
         save_dimension(dim_tema, engine, table_name=args.table)
 
