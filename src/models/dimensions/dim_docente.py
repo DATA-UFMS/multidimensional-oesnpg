@@ -1,21 +1,112 @@
 #!/usr/bin/env python3
 """
-Geração da Dimensão de Docentes Consolidada
+dim_docente.py
 
-Este script lê o arquivo 'add_docentes.parquet' do MinIO como base principal,
-enriquece com dados de raw_docente e raw_fomentopq do PostgreSQL,
-e cria uma dimensão de docentes completa.
+Módulo para criação e gerenciamento da dimensão de docentes no Data Warehouse.
 
-Fontes:
-- Base: add_docentes.parquet (MinIO)
-- Enriquecimento: raw_docente + raw_fomentopq (PostgreSQL)
+Descrição:
+    Este módulo implementa o processo de ETL (Extract, Transform, Load) para a dimensão
+    de docentes da pós-graduação brasileira, consolidando dados de múltiplas fontes e
+    enriquecendo com informações sobre qualificação, bolsas de produtividade e dados
+    demográficos.
+    
+    A dimensão contém:
+    - Dados básicos de identificação (id_pessoa, nome, documentos)
+    - Informações demográficas (sexo, raça/cor, deficiência, nacionalidade)
+    - Qualificação acadêmica (titulação, área, instituição tituladora)
+    - Vínculo institucional (categoria, regime de trabalho)
+    - Bolsas de produtividade em pesquisa (PQ/CNPq)
+    - Identificadores únicos (id_lattes, id_pessoa)
+
+Fontes de Dados:
+    - Base Principal: add_docentes.parquet (MinIO) - Dados consolidados dos docentes
+    - Enriquecimento 1: raw_docente (PostgreSQL) - Dados detalhados de cadastro
+    - Enriquecimento 2: raw_fomentopq (PostgreSQL) - Bolsas de produtividade CNPq
+
+Estrutura da Dimensão:
+    - docente_sk: Surrogate key (chave substituta sequencial, inicia em 0)
+    - id_pessoa: Identificador único do docente no sistema CAPES
+    - des_docente: Nome completo do docente
+    - des_categoria_docente: Categoria (Permanente, Colaborador, Visitante)
+    - des_regime_trabalho: Regime de trabalho (Integral, Parcial, Horista)
+    - des_faixa_etaria: Faixa etária do docente
+    - cs_sexo: Sexo (M/F)
+    - bl_doutor: Flag booleana indicando se possui doutorado
+    - an_titulacao: Ano de obtenção da titulação máxima
+    - des_grau_titulacao: Grau de titulação (Doutorado, Mestrado, etc.)
+    - des_area_titulacao: Área de conhecimento da titulação
+    - sg_ies_titulacao: Sigla da instituição tituladora
+    - bl_bolsa_pq: Flag booleana indicando se possui bolsa PQ (consolidada)
+    - cod_bolsa_produtividade: Código da bolsa de produtividade
+    - bl_coordenador_ppg: Flag booleana indicando se é coordenador de PPG
+    
+    Campos de Enriquecimento (raw_docente):
+    - tipo_documento: Tipo do documento (RG, CPF, Passaporte, etc.)
+    - documento_docente: Número do documento
+    - ano_nascimento: Ano de nascimento
+    - nacionalidade: Tipo de nacionalidade (Brasileira, Estrangeira)
+    - pais_nacionalidade: País de origem
+    - vinculo_ies: Tipo de vínculo com a IES
+    - nome_ies_titulacao: Nome completo da instituição tituladora
+    - pais_titulacao: País da instituição tituladora
+    - ano_base_mais_recente: Ano base mais recente dos dados
+    
+    Campos de Enriquecimento (raw_fomentopq):
+    - id_lattes: Identificador da plataforma Lattes
+    - pq_categoria_nivel: Categoria e nível da bolsa PQ (1A, 1B, 1C, 1D, 2, etc.)
+    - pq_modalidade: Modalidade da bolsa
+    - pq_grande_area: Grande área de conhecimento da bolsa
+    - pq_area: Área específica de conhecimento da bolsa
+    - pq_data_inicio: Data de início do processo/bolsa
+    - pq_data_termino: Data de término do processo/bolsa
+
+Processo de ETL:
+    1. Extração: Carrega dados base do MinIO (parquet) e tabelas raw do PostgreSQL
+    2. Transformação:
+       - Normalização de nomes de colunas
+       - Conversão de campos texto para booleanos (SIM/NÃO -> True/False)
+       - Deduplicação por id_pessoa (mantém registro mais recente)
+       - Enriquecimento por join com raw_docente (por id_pessoa)
+       - Enriquecimento por join com raw_fomentopq (por id_lattes ou nome)
+       - Consolidação de informação de bolsa PQ de múltiplas fontes
+       - Adição de surrogate key sequencial
+       - Criação de registro SK=0 para 'Desconhecido'
+    3. Carga: Inserção em massa na tabela dim_docente do PostgreSQL
+
+Validações:
+    - Unicidade de id_pessoa e docente_sk
+    - Campos obrigatórios: id_pessoa, des_docente
+    - Integridade de tipos booleanos
+    - Consistência de datas (pq_data_inicio < pq_data_termino)
+    - Verificação de duplicatas
+
+Dependências:
+    - pandas: Manipulação de DataFrames
+    - sqlalchemy: Conexão e operações com PostgreSQL
+    - MinIO/S3: Leitura de arquivos parquet
+    - python-dotenv: Gerenciamento de variáveis de ambiente
+
+Uso:
+    python3 src/models/dimensions/dim_docente.py
+
+Notas Técnicas:
+    - O enriquecimento com raw_fomentopq tenta primeiro por id_lattes
+    - Se id_lattes não disponível, tenta match por nome normalizado
+    - Deduplicação mantém sempre o registro mais recente (por ano_base ou data)
+    - Registro SK=0 garante integridade referencial em joins
+
+Autor: UFMS - Data Warehouse CAPES/OES/NPG
+Data de Criação: 2025
+Última Atualização: 09/10/2025
 """
 
 import os
+import sys
 import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from pathlib import Path
+
 # Adicionar o diretório raiz ao path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
@@ -117,26 +208,35 @@ def load_raw_data_from_postgres(engine) -> tuple:
     df_raw_docente = df_raw_docente.drop_duplicates(subset=['id_pessoa'], keep='first')
     print(f"    ✅ {len(df_raw_docente):,} docentes únicos de raw_docente")
     
-    # Carregar raw_fomentopq  
+    # Carregar raw_fomentopq (com tratamento se não existir)
     print("  - Carregando raw_fomentopq...")
-    df_raw_pq = pd.read_sql_query("""
-    SELECT 
-        id_lattes,
-        des_beneficiario as nome_beneficiario,
-        cod_categoria_nivel as pq_categoria_nivel,
-        cod_modalidade as pq_modalidade,
-        des_grande_area as pq_grande_area,
-        des_area as pq_area,
-        data_inicio_processo as pq_data_inicio,
-        data_termino_processo as pq_data_termino
-    FROM raw_fomentopq
-    WHERE id_lattes IS NOT NULL AND id_lattes != ''
-    """, engine)
-    
-    # Consolidar raw_fomentopq por id_lattes (mais recente)
-    df_raw_pq = df_raw_pq.sort_values('pq_data_inicio', ascending=False)
-    df_raw_pq = df_raw_pq.drop_duplicates(subset=['id_lattes'], keep='first')
-    print(f"    ✅ {len(df_raw_pq):,} bolsistas PQ únicos de raw_fomentopq")
+    try:
+        df_raw_pq = pd.read_sql_query("""
+        SELECT 
+            id_lattes,
+            des_beneficiario as nome_beneficiario,
+            cod_categoria_nivel as pq_categoria_nivel,
+            cod_modalidade as pq_modalidade,
+            des_grande_area as pq_grande_area,
+            des_area as pq_area,
+            data_inicio_processo as pq_data_inicio,
+            data_termino_processo as pq_data_termino
+        FROM raw_fomentopq
+        WHERE id_lattes IS NOT NULL AND id_lattes != ''
+        """, engine)
+        
+        # Consolidar raw_fomentopq por id_lattes (mais recente)
+        df_raw_pq = df_raw_pq.sort_values('pq_data_inicio', ascending=False)
+        df_raw_pq = df_raw_pq.drop_duplicates(subset=['id_lattes'], keep='first')
+        print(f"    ✅ {len(df_raw_pq):,} bolsistas PQ únicos de raw_fomentopq")
+    except Exception as e:
+        print(f"    ⚠️  Tabela raw_fomentopq não encontrada: {e}")
+        print("    📋 Continuando sem dados de bolsa PQ...")
+        # Criar DataFrame vazio com as colunas esperadas
+        df_raw_pq = pd.DataFrame(columns=[
+            'id_lattes', 'nome_beneficiario', 'pq_categoria_nivel', 'pq_modalidade',
+            'pq_grande_area', 'pq_area', 'pq_data_inicio', 'pq_data_termino'
+        ])
     
     return df_raw_docente, df_raw_pq
 
@@ -323,11 +423,89 @@ def save_to_postgres(df: pd.DataFrame, engine, table_name: str):
             # Limpar tabela se já existir dados
             conn.exec_driver_sql(f"DELETE FROM {table_name};")
             
-            # Inserir dados
-            df.to_sql(table_name, conn, if_exists='append', index=False, method='multi')
-        print("Dimensão salva com sucesso!")
+        # Mapear nomes de colunas do DataFrame para os nomes da tabela
+        column_mapping = {
+            'des_docente': 'nome_docente',
+            'cs_sexo': 'sexo',
+            'documento_docente': 'numero_documento',
+            'bl_bolsa_pq': 'bl_bolsa_pq_original',
+            'pq_area': 'pq_area_atuacao'
+        }
+        
+        # Renomear apenas as colunas que existem no DataFrame
+        df_to_save = df.copy()
+        rename_dict = {k: v for k, v in column_mapping.items() if k in df_to_save.columns}
+        if rename_dict:
+            df_to_save = df_to_save.rename(columns=rename_dict)
+            print(f"  📝 Colunas renomeadas: {list(rename_dict.keys())} → {list(rename_dict.values())}")
+        
+        # Transformar campo sexo para apenas 1 caractere (M/F/O)
+        if 'sexo' in df_to_save.columns:
+            def map_sexo(value):
+                if pd.isna(value) or value is None or value == '':
+                    return None
+                value_str = str(value).strip().upper()
+                if value_str.startswith('M'):
+                    return 'M'
+                elif value_str.startswith('F'):
+                    return 'F'
+                else:
+                    return 'O'  # Outro
+            df_to_save['sexo'] = df_to_save['sexo'].apply(map_sexo)
+        
+        # Truncar campos VARCHAR para caber nos limites da tabela
+        varchar_limits = {
+            'id_pessoa': 50,
+            'nome_docente': 255,
+            'tipo_documento': 50,
+            'numero_documento': 50,
+            'pais_nacionalidade': 100,
+            'uf_nascimento': 2,
+            'cidade_nascimento': 100,
+            'raca_cor': 50,
+            'deficiencia': 50,
+            'des_grau_titulacao': 100,
+            'des_area_titulacao': 255,
+            'sg_ies_titulacao': 20,
+            'cod_bolsa_produtividade': 20,
+            'id_lattes': 50,
+            'pq_categoria_nivel': 50,
+            'pq_area_atuacao': 255,
+            'pq_periodo_vigencia': 50
+        }
+        
+        for col, max_len in varchar_limits.items():
+            if col in df_to_save.columns:
+                df_to_save[col] = df_to_save[col].astype(str).str[:max_len]
+                # Substituir 'nan' string por None
+                df_to_save[col] = df_to_save[col].replace('nan', None)
+        
+        # Selecionar apenas as colunas que existem na tabela
+        table_columns = ['docente_sk', 'id_pessoa', 'nome_docente', 'tipo_documento', 'numero_documento',
+                        'pais_nacionalidade', 'uf_nascimento', 'cidade_nascimento', 'sexo', 'raca_cor',
+                        'deficiencia', 'des_grau_titulacao', 'des_area_titulacao', 'sg_ies_titulacao',
+                        'cod_bolsa_produtividade', 'bl_doutor', 'bl_coordenador_ppg', 'bl_bolsa_pq_original',
+                        'id_lattes', 'pq_categoria_nivel', 'pq_area_atuacao', 'pq_periodo_vigencia']
+        
+        # Manter apenas colunas que existem no DataFrame
+        available_cols = [col for col in table_columns if col in df_to_save.columns]
+        df_to_save = df_to_save[available_cols]
+        
+        # Inserir dados em chunks para evitar overflow de parâmetros
+        # 31 colunas x 500 registros = 15.500 parâmetros (abaixo do limite de 32.767)
+        CHUNK_SIZE = 500
+        total_chunks = (len(df_to_save) + CHUNK_SIZE - 1) // CHUNK_SIZE
+        print(f"  Inserindo {len(df_to_save):,} registros ({len(available_cols)} colunas) em {total_chunks} chunks de {CHUNK_SIZE}...")
+        
+        for i in range(0, len(df_to_save), CHUNK_SIZE):
+            chunk = df_to_save.iloc[i:i+CHUNK_SIZE]
+            chunk_num = (i // CHUNK_SIZE) + 1
+            chunk.to_sql(table_name, engine, if_exists='append', index=False, method='multi')
+            print(f"    Chunk {chunk_num}/{total_chunks} inserido ({len(chunk)} registros)")
+            
+        print("  ✅ Dimensão salva com sucesso!")
     except Exception as e:
-        print(f"ERRO: Falha ao salvar a dimensão: {e}")
+        print(f"❌ ERRO: Falha ao salvar a dimensão: {e}")
         raise
 
 def main():
@@ -344,8 +522,34 @@ def main():
         # 1. Conectar ao banco de dados
         engine = get_db_engine(project_root / '.env')
         
-        # 2. Ler dados base do MinIO
-        df_base = load_parquet_from_minio(project_root / '.env')
+        # 2. Tentar ler dados base do MinIO, com fallback para PostgreSQL
+        try:
+            print("Tentando carregar dados do MinIO...")
+            df_base = load_parquet_from_minio(project_root / '.env')
+        except Exception as minio_error:
+            print(f"⚠️  MinIO não disponível: {minio_error}")
+            print("📋 Usando fallback: carregando dados direto do PostgreSQL (raw_docente)...")
+            # Usar raw_docente como base quando MinIO não está disponível
+            # Retornar colunas com nomes em MAIÚSCULAS para compatibilidade com create_enriched_docente_dimension
+            df_base = pd.read_sql_query("""
+            SELECT 
+                id_pessoa as "ID_PESSOA",
+                nm_docente as "NM_DOCENTE",
+                ds_categoria_docente as "DS_CATEGORIA_DOCENTE",
+                ds_regime_trabalho as "DS_REGIME_TRABALHO",
+                ds_faixa_etaria as "DS_FAIXA_ETARIA",
+                in_doutor as "IN_DOUTOR",
+                an_titulacao as "AN_TITULACAO",
+                nm_grau_titulacao as "NM_GRAU_TITULACAO",
+                nm_area_basica_titulacao as "NM_AREA_BASICA_TITULACAO",
+                sg_ies_titulacao as "SG_IES_TITULACAO",
+                cd_cat_bolsa_produtividade as "CD_CAT_BOLSA_PRODUTIVIDADE",
+                'NÃO' as "IN_COORDENADOR_PPG",
+                ano_base
+            FROM raw_docente
+            WHERE ano_base = (SELECT MAX(ano_base) FROM raw_docente)
+            """, engine)
+            print(f"✅ {len(df_base):,} registros carregados do PostgreSQL (ano mais recente)")
         
         # 3. Carregar dados de enriquecimento do PostgreSQL
         df_raw_docente, df_raw_pq = load_raw_data_from_postgres(engine)

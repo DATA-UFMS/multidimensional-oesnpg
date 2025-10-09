@@ -1,3 +1,51 @@
+"""
+dim_localidade.py
+
+Módulo para criação e gerenciamento da dimensão de localidade no Data Warehouse.
+
+Descrição:
+    Este módulo implementa o processo de ETL (Extract, Transform, Load) para a dimensão
+    de localidade, que inclui informações sobre estados (UF) e municípios brasileiros.
+    
+    A dimensão contém:
+    - 27 estados brasileiros com coordenadas geográficas (latitude/longitude)
+    - 5.570+ municípios com suas respectivas localizações
+    - Hierarquia geográfica: Região > Estado (UF) > Município
+    - Códigos IBGE para integração com outras bases de dados
+
+Fontes de Dados:
+    - Estados: Arquivo local 'tabela de codigos UF e Regiao IBGE.xlsx'
+    - Municípios: CSV do GitHub (kelvins/municipios-brasileiros)
+    - Coordenadas: Incluídas nos arquivos de origem
+
+Estrutura da Dimensão:
+    - localidade_sk: Surrogate key (chave substituta sequencial)
+    - sigla_uf: Sigla do estado (ex: 'SP', 'RJ', 'MG')
+    - nome_uf: Nome completo do estado
+    - regiao: Nome da região (Norte, Nordeste, Sul, Sudeste, Centro-Oeste)
+    - sigla_regiao: Sigla da região (2 caracteres)
+    - latitude: Coordenada geográfica (latitude)
+    - longitude: Coordenada geográfica (longitude)
+    - nivel: Tipo do registro ('UF' ou 'MUNICIPIO')
+    - municipio: Nome do município (quando aplicável)
+    - codigo_ibge: Código IBGE do município
+    - capital: Flag indicando se é capital (0 ou 1)
+    - nome: Nome completo da localidade
+
+Validações:
+    - Formato de UF: Exatamente 2 letras maiúsculas
+    - Completude de dados obrigatórios
+    - Valores únicos para surrogate keys
+    - Integridade referencial entre municípios e estados
+
+Uso:
+    python3 src/models/dimensions/dim_localidade.py
+
+Autor: UFMS - Data Warehouse CAPES/OES/NPG
+Data de Criação: 2025
+Última Atualização: 09/10/2025
+"""
+
 import pandas as pd
 from sqlalchemy import create_engine
 import os
@@ -141,19 +189,33 @@ def criar_dimensao_localidade():
     else:
         df_mun['capital'] = 0
 
-    # Trazer UF sigla e região via join, se disponível
-    if not df_estados.empty and 'codigo_uf' in df_estados.columns:
+    # Criar mapeamento codigo_uf -> sigla_uf usando os primeiros 2 dígitos do codigo_ibge
+    # Código IBGE do município: primeiros 2 dígitos = código UF
+    mapa_codigo_uf_sigla = {
+        11: 'RO', 12: 'AC', 13: 'AM', 14: 'RR', 15: 'PA', 16: 'AP', 17: 'TO',
+        21: 'MA', 22: 'PI', 23: 'CE', 24: 'RN', 25: 'PB', 26: 'PE', 27: 'AL', 28: 'SE', 29: 'BA',
+        31: 'MG', 32: 'ES', 33: 'RJ', 35: 'SP',
+        41: 'PR', 42: 'SC', 43: 'RS',
+        50: 'MS', 51: 'MT', 52: 'GO', 53: 'DF'
+    }
+    
+    # Extrair código UF do codigo_ibge se necessário
+    if 'codigo_ibge' in df_mun.columns and 'sigla_uf' not in df_mun.columns:
+        df_mun['codigo_uf'] = df_mun['codigo_ibge'].astype(str).str[:2].astype(int)
+        df_mun['sigla_uf'] = df_mun['codigo_uf'].map(mapa_codigo_uf_sigla)
+        df_mun['regiao'] = df_mun['sigla_uf'].map(regiao_por_uf)
+    
+    # Trazer UF sigla e região via join com estados, se disponível e ainda não temos sigla_uf
+    elif not df_estados.empty and 'codigo_uf' in df_estados.columns and 'codigo_uf' in df_mun.columns:
         # Obter combinação única por codigo_uf via groupby para evitar ambiguidade tipada
         estados_keys = df_estados.groupby('codigo_uf', as_index=False).first()[['codigo_uf','sigla_uf','regiao']]
         estados_keys = pd.DataFrame(estados_keys)
-        df_mun = df_mun.merge(estados_keys, on='codigo_uf', how='left')
-    else:
-        # Sem código UF nos estados, tentar mapear por código_uf dos municípios usando dicionário de região
-        if 'sigla_uf' not in df_mun.columns and 'codigo_uf' in df_mun.columns:
-            # Não temos sigla diretamente; manterá nulo
-            pass
-        if 'regiao' not in df_mun.columns and 'sigla_uf' in df_mun.columns:
-            df_mun['regiao'] = df_mun['sigla_uf'].apply(lambda uf: regiao_por_uf.get(uf))
+        df_mun = df_mun.merge(estados_keys, on='codigo_uf', how='left', suffixes=('', '_estado'))
+        # Se merge falhou, usar o mapeamento manual
+        if df_mun['sigla_uf'].isna().any():
+            mask_nulo = df_mun['sigla_uf'].isna()
+            df_mun.loc[mask_nulo, 'sigla_uf'] = df_mun.loc[mask_nulo, 'codigo_uf'].map(mapa_codigo_uf_sigla)
+            df_mun.loc[mask_nulo, 'regiao'] = df_mun.loc[mask_nulo, 'sigla_uf'].map(regiao_por_uf)
 
     # Garantir coluna regiao antes de derivar sigla_regiao
     if 'regiao' not in df_mun.columns:
@@ -225,10 +287,30 @@ def criar_dimensao_localidade():
         'capital': registro_desconhecido['capital'],
         'nome': registro_desconhecido['nome']
     }]), df_localidade], ignore_index=True)
+    
+    # CRÍTICO: Recriar coluna 'uf' após TODOS os concats (pode ter sido perdida)
+    # Garantir que TODOS os registros tenham uf = sigla_uf
+    df_localidade['uf'] = df_localidade['sigla_uf']
 
     # Surrogate key iniciando em 0
     import numpy as np
     df_localidade.insert(0, 'localidade_sk', np.arange(len(df_localidade)))
+    
+    # DEBUG: Verificar estado da coluna 'uf' ANTES da validação
+    print(f"\n🔍 DEBUG - Estado da coluna 'uf' antes da validação:")
+    print(f"   Total de registros: {len(df_localidade)}")
+    print(f"   Tipo de dados: {df_localidade['uf'].dtype}")
+    print(f"   Valores nulos: {df_localidade['uf'].isna().sum()}")
+    print(f"   Valores únicos: {df_localidade['uf'].nunique()}")
+    print(f"   Valores únicos: {sorted(df_localidade['uf'].dropna().unique().tolist())}")
+    print(f"   Registros válidos (^[A-Z]{{2}}$): {df_localidade['uf'].str.match(r'^[A-Z]{2}$', na=False).sum()}")
+    print(f"   Registros inválidos: {(~df_localidade['uf'].str.match(r'^[A-Z]{2}$', na=False)).sum()}")
+    
+    # Mostrar exemplos de inválidos
+    invalid = df_localidade[~df_localidade['uf'].str.match(r'^[A-Z]{2}$', na=False)]
+    if len(invalid) > 0:
+        print(f"\n   📋 Primeiros 5 registros inválidos:")
+        print(invalid[['localidade_sk', 'sigla_uf', 'uf', 'nome', 'nivel']].head(5).to_string())
     
     # Validar dados usando o sistema de validação
     try:
@@ -273,6 +355,9 @@ def salvar_dimensao_localidade(df_localidade):
         if 'localidade_sk' not in df_localidade.columns:
             raise DimensionCreationError("DataFrame não possui coluna 'localidade_sk' obrigatória")
         
+        # Remover coluna 'uf' (usada apenas para validação, não existe na tabela)
+        df_to_save = df_localidade.drop(columns=['uf'], errors='ignore')
+        
         # Criar conexão com o banco
         url = f'postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
         engine = create_engine(url)
@@ -304,9 +389,9 @@ def salvar_dimensao_localidade(df_localidade):
             # Limpar tabela se já existir dados
             conn.exec_driver_sql("DELETE FROM dim_localidade;")
             
-            # Inserir dados
-            df_localidade.to_sql('dim_localidade', conn, if_exists='append', index=False)
-        print(f"Dimensão localidade salva no PostgreSQL com {len(df_localidade)} registros")
+            # Inserir dados (sem a coluna 'uf')
+            df_to_save.to_sql('dim_localidade', conn, if_exists='append', index=False)
+        print(f"Dimensão localidade salva no PostgreSQL com {len(df_to_save)} registros")
             
     except DimensionCreationError as e:
         print(f"Erro de criação da dimensão: {e}")
