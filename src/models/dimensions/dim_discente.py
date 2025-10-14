@@ -1,10 +1,59 @@
 #!/usr/bin/env python3
 """
-🎓 DIMENSÃO DISCENTE - Data Warehouse Observatório CAPES
-=========================================================
-Cria a dimensão dim_discente baseada nos dados do add_discentes.parquet
-Estrutura: sk, informações dos Discentes de Pós-Graduação
-Data: 22/09/2025 - Primeira versão baseada em add_discentes.parquet
+dim_discente.py
+
+Módulo para criação e gerenciamento da dimensão de discentes no Data Warehouse.
+
+Descrição:
+    Este módulo implementa o processo de ETL (Extract, Transform, Load) para a dimensão
+    de discentes da pós-graduação brasileira, consolidando dados de múltiplas fontes e
+    enriquecendo com informações sobre perfil acadêmico, situação no programa e dados
+    demográficos.
+    
+    A dimensão contém:
+    - Dados básicos de identificação (id_pessoa, id_discente, nome, documentos)
+    - Informações demográficas (sexo, raça/cor, necessidade especial, nacionalidade)
+    - Dados acadêmicos (grau acadêmico, situação, orientador, título da tese/dissertação)
+    - Informações temporais (data de nascimento, matrícula, situação, idade)
+    - Status no programa (ingressante, situação, tempo para titulação)
+    - Identificadores únicos (id_lattes, id_pessoa, id_discente)
+
+Fontes de Dados:
+    - Base Principal: add_discentes.parquet (MinIO) - Dados consolidados dos discentes
+    
+Estrutura da Dimensão:
+    - discente_sk: Surrogate key (chave substituta sequencial, inicia em 0)
+    - id_discente: Identificador único do discente no sistema CAPES
+    - id_pessoa: Identificador de pessoa no sistema CAPES
+    - nome_discente: Nome completo do discente
+    - tipo_documento: Tipo do documento (RG, CPF, Passaporte, etc.)
+    - numero_documento: Número do documento
+    - sexo: Sexo do discente
+    - data_nascimento: Data de nascimento
+    - idade_ano_base: Idade do discente no ano base
+    - pais_nacionalidade: País de nacionalidade
+    - tipo_nacionalidade: Tipo de nacionalidade (Brasileira, Estrangeira)
+    - raca_cor: Raça/cor declarada
+    - necessidade_especial: Indicador de necessidade especial (S/N)
+    - status_ingressante: Status de ingressante (Sim/Não)
+    - grau_academico: Grau acadêmico do programa (Mestrado, Doutorado)
+    - data_matricula: Data de matrícula no programa
+    - situacao_discente: Situação atual no programa (Matriculado, Titulado, Desligado, etc.)
+    - data_situacao: Data da última atualização de situação
+    - faixa_etaria: Faixa etária do discente
+    - orientador_principal: Nome do orientador principal
+    - titulo_tese_dissertacao: Título da tese ou dissertação
+    - meses_para_titulacao: Quantidade de meses até a titulação
+    - id_lattes: Identificador do currículo Lattes
+    - ano_base: Ano base de referência dos dados
+
+Registro SK=0:
+    - Registro especial com discente_sk=0 representa valores desconhecidos
+    - Usado para integridade referencial em casos de dados ausentes nas tabelas fato
+
+Autor: Sistema DW OESNPG
+Data: Outubro/2025
+Versão: 2.0
 """
 
 import pandas as pd
@@ -312,7 +361,7 @@ def criar_dim_discente():
         
         -- Comentários
         COMMENT ON TABLE dim_discente IS 'Dimensão de Discentes do Data Warehouse';
-        COMMENT ON COLUMN dim_discente.sk IS 'Chave surrogate da dimensão discente (0=desconhecido)';
+        COMMENT ON COLUMN dim_discente.discente_sk IS 'Chave surrogate da dimensão discente (0=desconhecido)';
         COMMENT ON COLUMN dim_discente.id_discente IS 'ID natural do discente (CAPES)';
         COMMENT ON COLUMN dim_discente.nome_discente IS 'Nome completo do discente';
         COMMENT ON COLUMN dim_discente.situacao_discente IS 'Situação atual do discente no programa';
@@ -326,17 +375,43 @@ def criar_dim_discente():
         # Remover a coluna sk para permitir inserção manual
         df_insert = df_dim_final.copy()
         
-        # Processar em lotes para evitar sobrecarga de memória
-        chunk_size = 50000
-        total_chunks = len(df_insert) // chunk_size + (1 if len(df_insert) % chunk_size else 0)
+        # Truncar campos VARCHAR para respeitar limites da tabela
+        varchar_limits = {
+            'id_discente': 50,
+            'id_pessoa': 50,
+            'nome_discente': 255,
+            'tipo_documento': 20,
+            'numero_documento': 50,
+            'sexo': 20,
+            'pais_nacionalidade': 100,
+            'tipo_nacionalidade': 50,
+            'raca_cor': 50,
+            'necessidade_especial': 5,
+            'status_ingressante': 50,
+            'grau_academico': 50,
+            'situacao_discente': 100,
+            'faixa_etaria': 50,
+            'orientador_principal': 255,
+            'id_lattes': 50
+        }
         
-        logger.info(f"Processando {len(df_insert):,} registros em {total_chunks} lotes de {chunk_size:,}")
+        for col, max_len in varchar_limits.items():
+            if col in df_insert.columns:
+                df_insert[col] = df_insert[col].astype(str).str[:max_len]
+                # Substituir 'nan' string por None
+                df_insert[col] = df_insert[col].replace('nan', None)
         
-        for i in range(0, len(df_insert), chunk_size):
-            chunk = df_insert.iloc[i:i+chunk_size]
-            chunk_num = (i // chunk_size) + 1
+        # Processar em lotes para evitar sobrecarga de memória e overflow de parâmetros SQL
+        CHUNK_SIZE = 500  # Tamanho reduzido para evitar overflow de parâmetros SQL (32.767 limite PostgreSQL)
+        total_chunks = (len(df_insert) + CHUNK_SIZE - 1) // CHUNK_SIZE
+        
+        logger.info(f"Inserindo {len(df_insert):,} registros em {total_chunks} chunks de {CHUNK_SIZE}...")
+        
+        for i in range(0, len(df_insert), CHUNK_SIZE):
+            chunk = df_insert.iloc[i:i+CHUNK_SIZE]
+            chunk_num = (i // CHUNK_SIZE) + 1
             
-            logger.info(f"Inserindo lote {chunk_num}/{total_chunks} ({len(chunk):,} registros)")
+            logger.info(f"Chunk {chunk_num}/{total_chunks} inserido ({len(chunk)} registros)")
             
             success = db.save_dataframe(
                 df=chunk,
@@ -345,8 +420,8 @@ def criar_dim_discente():
             )
             
             if not success:
-                logger.error(f"Falha ao inserir lote {chunk_num}")
-                raise Exception(f"Erro na inserção do lote {chunk_num}")
+                logger.error(f"❌ Falha ao inserir chunk {chunk_num}")
+                raise Exception(f"Erro na inserção do chunk {chunk_num}")
             
             # Liberar memória
             del chunk
@@ -384,7 +459,7 @@ def criar_dim_discente():
             COUNT(DISTINCT situacao_discente) as situacoes_reais,
             COUNT(DISTINCT grau_academico) as graus_reais
         FROM dim_discente
-        WHERE sk != 0
+        WHERE discente_sk != 0
         """
         
         stats_reais = db.execute_query(stats_sem_sk0_query)

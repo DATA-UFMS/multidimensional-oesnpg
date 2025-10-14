@@ -46,57 +46,81 @@ def get_logger():
     return logger
 
 
-def carregar_dados_discentes_titulados():
+def carregar_dados_discentes_titulados(db):
     """
-    Carrega dados de discentes do arquivo parquet local.
+    Carrega dados de discentes da tabela dim_discente no PostgreSQL.
+    
+    Args:
+        db: DatabaseManager instance
+        
+    Returns:
+        DataFrame com todos os discentes da dim_discente
     """
-    logger.info("🎓 Carregando dados de discentes TITULADOS...")
+    logger.info("🎓 Carregando dados de discentes da tabela dim_discente...")
     
     try:
-        # Primeiro tentar o arquivo local
-        local_path = "parquet_output/dim_discente.parquet"
-        if os.path.exists(local_path):
-            logger.info(f"Carregando dados do arquivo local: {local_path}")
-            df = pd.read_parquet(local_path)
-            logger.info(f"Dados locais carregados: {len(df):,} registros")
-            return df
+        # Carregar dados da dim_discente (excluindo SK=0)
+        query = """
+        SELECT 
+            discente_sk,
+            id_discente,
+            id_pessoa,
+            nome_discente,
+            tipo_documento,
+            numero_documento,
+            sexo,
+            data_nascimento,
+            idade_ano_base,
+            pais_nacionalidade,
+            tipo_nacionalidade,
+            raca_cor,
+            necessidade_especial,
+            status_ingressante,
+            grau_academico,
+            data_matricula,
+            situacao_discente,
+            data_situacao,
+            faixa_etaria,
+            orientador_principal,
+            titulo_tese_dissertacao,
+            meses_para_titulacao,
+            id_lattes,
+            ano_base
+        FROM dim_discente
+        WHERE discente_sk > 0
+        """
         
-        # Se não encontrar local, tentar MinIO
-        logger.info("Carregando dados do MinIO...")
-        path = "s3://oesnpg/add_capes/add_discentes.parquet"
-        storage_options = {
-            'key': 'minioadmin',
-            'secret': 'minioadmin',
-            'client_kwargs': {'endpoint_url': 'http://localhost:9000'}
-        }
+        df = db.execute_query(query)
+        logger.info(f"✅ Dados carregados da dim_discente: {len(df):,} registros")
         
-        df = pd.read_parquet(path, storage_options=storage_options)
-        logger.info(f"Dados brutos carregados: {len(df):,} registros")
         return df
         
     except Exception as e:
-        logger.error(f"❌ Falha ao carregar dados: {e}")
+        logger.error(f"❌ Falha ao carregar dados da dim_discente: {e}")
         raise
 
 def filtrar_titulados(df):
     """
     Filtra apenas os discentes que são titulados (concluíram mestrado/doutorado).
+    Utiliza os nomes de colunas da dim_discente.
+    
+    Args:
+        df: DataFrame com dados da dim_discente
+        
+    Returns:
+        DataFrame filtrado com apenas titulados
     """
     logger.info("🔍 Aplicando filtros para identificar titulados...")
+    logger.info(f"Total de registros antes dos filtros: {len(df):,}")
     
-    # Renomear colunas essenciais para o filtro
-    df_filtro = df.rename(columns={
-        'DS_GRAU_ACADEMICO_DISCENTE': 'grau_academico',
-        'NM_SITUACAO_DISCENTE': 'situacao_discente', 
-        'QT_MES_TITULACAO': 'meses_para_titulacao'
-    })
-    
-    logger.info(f"Total de registros antes dos filtros: {len(df_filtro):,}")
-    
-    # FILTRO 1: Graus acadêmicos relevantes
+    # FILTRO 1: Graus acadêmicos relevantes (usar nome da coluna da dim_discente)
     graus_validos = ['MESTRADO', 'DOUTORADO', 'MESTRADO PROFISSIONAL', 'DOUTORADO PROFISSIONAL']
-    mask_grau = df_filtro['grau_academico'].isin(graus_validos)
-    df_grau = df_filtro[mask_grau]
+    
+    # Converter para string e uppercase para comparação
+    df['grau_academico_upper'] = df['grau_academico'].astype(str).str.upper()
+    mask_grau = df['grau_academico_upper'].isin(graus_validos)
+    
+    df_grau = df[mask_grau].copy()
     logger.info(f"Após filtro de grau acadêmico: {len(df_grau):,} registros")
     
     # FILTRO 2: Situação indica titulação
@@ -108,7 +132,9 @@ def filtrar_titulados(df):
         "DEFENDEU"
     ]
     
-    mask_situacao = df_grau['situacao_discente'].str.contains(
+    # Converter situacao_discente para string antes de aplicar str.contains
+    df_grau['situacao_str'] = df_grau['situacao_discente'].astype(str).str.upper()
+    mask_situacao = df_grau['situacao_str'].str.contains(
         '|'.join(criterios_titulacao), case=False, na=False
     )
     
@@ -122,86 +148,43 @@ def filtrar_titulados(df):
     mask = mask_situacao | mask_tempo
     df_titulados = df_grau[mask].copy()
     
+    # Remover colunas auxiliares
+    df_titulados = df_titulados.drop(columns=['grau_academico_upper', 'situacao_str'], errors='ignore')
+    
     logger.info(f"🎯 Titulados identificados: {len(df_titulados):,} registros")
-    logger.info(f"📈 Taxa de titulação: {(len(df_titulados)/len(df_grau))*100:.1f}%")
+    if len(df_grau) > 0:
+        logger.info(f"📈 Taxa de titulação: {(len(df_titulados)/len(df_grau))*100:.1f}%")
     
     return df_titulados
 
 def transformar_dados_titulado(df):
     """
     Transforma os dados de discentes titulados para a dimensão final.
+    Usa as colunas já padronizadas da dim_discente.
+    
+    Args:
+        df: DataFrame filtrado com titulados da dim_discente
+        
+    Returns:
+        DataFrame com estrutura da dim_titulado
     """
     logger.info("🔄 Transformando dados para dimensão de titulados...")
+    logger.info(f"Total de registros a transformar: {len(df):,}")
     
-    # Debug: mostrar colunas disponíveis
-    logger.info(f"🔍 Colunas disponíveis: {list(df.columns)}")
+    # Mapeamento direto das colunas da dim_discente para dim_titulado
+    df_dim = df.rename(columns={
+        'id_discente': 'id_discente_original',
+        'nome_discente': 'nome_titulado',
+        'grau_academico': 'grau_titulacao',
+        'situacao_discente': 'situacao_titulacao',
+        'data_situacao': 'data_titulacao',
+        'titulo_tese_dissertacao': 'titulo_trabalho_final'
+    }).copy()
     
-    # Primeiro, verificar qual é o campo ID correto
-    id_column = None
-    for col in ['ID_DISCENTE', 'id_discente', 'discente_id', 'ID_PESSOA', 'id_pessoa']:
-        if col in df.columns:
-            id_column = col
-            break
-    
-    if id_column is None:
-        logger.error("❌ Não foi possível identificar coluna de ID do discente")
-        raise ValueError("Coluna de ID não encontrada")
-    
-    logger.info(f"✅ Usando coluna de ID: {id_column}")
-    
-    # Mapeamento de colunas específico para titulados (baseado nas colunas reais)
-    column_mapping = {}
-    
-    # Tentar mapear as colunas principais
-    possible_columns = {
-        'id_discente_original': ['ID_DISCENTE', 'id_discente', 'discente_id'],
-        'id_pessoa': ['ID_PESSOA', 'id_pessoa', 'pessoa_id'],
-        'nome_titulado': ['NM_DISCENTE', 'nm_discente', 'nome_discente', 'nome'],
-        'tipo_documento': ['TP_DOCUMENTO_DISCENTE', 'tipo_documento'],
-        'numero_documento': ['NR_DOCUMENTO_DISCENTE', 'numero_documento'],
-        'sexo': ['TP_SEXO_DISCENTE', 'sexo'],
-        'data_nascimento': ['DT_NASCIMENTO_DISCENTE', 'data_nascimento'],
-        'idade_ano_base': ['DS_IDADE_ANOBASE', 'idade_ano_base'],
-        'pais_nacionalidade': ['NM_PAIS_NACIONALIDADE_DISCENTE', 'pais_nacionalidade'],
-        'raca_cor': ['NM_RACA_COR', 'raca_cor'],
-        'grau_titulacao': ['grau_academico', 'DS_GRAU_ACADEMICO_DISCENTE'],
-        'data_matricula': ['DT_MATRICULA_DISCENTE', 'data_matricula'],
-        'situacao_titulacao': ['situacao_discente', 'DS_SITUACAO_DISCENTE'],
-        'data_titulacao': ['DT_SITUACAO_DISCENTE', 'data_titulacao'],
-        'faixa_etaria': ['DS_FAIXA_ETARIA', 'faixa_etaria'],
-        'orientador_principal': ['NM_ORIENTADOR_PRINCIPAL', 'orientador_principal'],
-        'titulo_trabalho_final': ['NM_TESE_DISSERTACAO', 'titulo_trabalho_final'],
-        'meses_para_titulacao': ['meses_para_titulacao', 'QT_MES_TITULACAO'],
-        'id_lattes': ['ID_LATTES', 'id_lattes'],
-        'ano_base': ['AN_BASE', 'ano_base']
-    }
-    
-    # Criar mapeamento real baseado nas colunas disponíveis
-    column_mapping = {}
-    for target_col, source_options in possible_columns.items():
-        for source_col in source_options:
-            if source_col in df.columns:
-                column_mapping[source_col] = target_col
-                break
-    
-    logger.info(f"🔄 Mapeamento de colunas identificado: {len(column_mapping)} colunas")
-    
-    # Aplicar mapeamento
-    df_mapped = df.rename(columns=column_mapping)
-    
-    # Remover duplicatas por ID do discente (manter mais recente)
-    logger.info(f"Removendo duplicatas de {len(df_mapped):,} registros...")
-    
-    # Identificar coluna de ID correta após mapeamento
-    id_col_mapped = 'id_discente_original'
-    if id_col_mapped not in df_mapped.columns:
-        # Tentar usar a primeira coluna de ID disponível
-        for col in df_mapped.columns:
-            if 'id' in col.lower() and 'discente' in col.lower():
-                id_col_mapped = col
-                break
-    
-    df_dim = df_mapped.drop_duplicates(subset=[id_col_mapped], keep='last')
+    # Remover duplicatas por ID do discente (manter mais recente por ano_base)
+    logger.info(f"Removendo duplicatas de {len(df_dim):,} registros...")
+    df_dim = df_dim.sort_values('ano_base', ascending=False)
+    df_dim = df_dim.drop_duplicates(subset=['id_discente_original'], keep='first')
     logger.info(f"Após remoção de duplicatas: {len(df_dim):,} titulados únicos")
     
     # Criar surrogate key específica para titulados
@@ -210,7 +193,6 @@ def transformar_dados_titulado(df):
     
     # Tratamento de valores nulos específico para titulados
     logger.info("Tratando valores nulos...")
-    
     fillna_map = {
         'nome_titulado': 'NÃO INFORMADO',
         'sexo': 'NÃO INFORMADO',
@@ -229,9 +211,9 @@ def transformar_dados_titulado(df):
     
     # Converter tipos de dados
     logger.info("Convertendo tipos de dados...")
-    df_dim['meses_para_titulacao'] = pd.to_numeric(df_dim['meses_para_titulacao'], errors='coerce').fillna(0)
-    df_dim['idade_ano_base'] = pd.to_numeric(df_dim['idade_ano_base'], errors='coerce').fillna(0)
-    df_dim['ano_base'] = pd.to_numeric(df_dim['ano_base'], errors='coerce').fillna(2025)
+    df_dim['meses_para_titulacao'] = pd.to_numeric(df_dim['meses_para_titulacao'], errors='coerce').fillna(0).astype(int)
+    df_dim['idade_ano_base'] = pd.to_numeric(df_dim['idade_ano_base'], errors='coerce').fillna(0).astype(int)
+    df_dim['ano_base'] = pd.to_numeric(df_dim['ano_base'], errors='coerce').fillna(2025).astype(int)
     
     # Criar campos derivados específicos para titulados
     logger.info("Criando campos derivados...")
@@ -241,33 +223,59 @@ def transformar_dados_titulado(df):
     
     # Indicador de nível de titulação
     def nivel_titulacao(grau):
-        if 'MESTRADO' in str(grau).upper():
+        grau_upper = str(grau).upper()
+        if 'MESTRADO' in grau_upper:
             return 'MESTRE'
-        elif 'DOUTORADO' in str(grau).upper():
+        elif 'DOUTORADO' in grau_upper:
             return 'DOUTOR'
         else:
             return 'OUTROS'
     
     df_dim['nivel_titulacao'] = df_dim['grau_titulacao'].apply(nivel_titulacao)
     
+    # Truncar campos VARCHAR para respeitar limites da tabela
+    logger.info("Truncando campos VARCHAR...")
+    varchar_limits = {
+        'id_discente_original': 50,
+        'id_pessoa': 50,
+        'nome_titulado': 255,
+        'tipo_documento': 50,
+        'numero_documento': 50,
+        'sexo': 20,
+        'pais_nacionalidade': 100,
+        'raca_cor': 50,
+        'grau_titulacao': 100,
+        'nivel_titulacao': 20,
+        'situacao_titulacao': 100,
+        'faixa_etaria': 50,
+        'orientador_principal': 255,
+        'id_lattes': 50
+    }
+    
+    for col, max_len in varchar_limits.items():
+        if col in df_dim.columns:
+            df_dim[col] = df_dim[col].astype(str).str[:max_len]
+            # Substituir 'nan' string por None
+            df_dim[col] = df_dim[col].replace('nan', None)
+    
     # Adicionar registro SK=0 para unknown
     logger.info("Adicionando registro SK=0...")
-    registro_sk0 = {
+    registro_sk0 = pd.DataFrame([{
         'titulado_sk': 0,
         'id_discente_original': 'UNKNOWN_0',
         'id_pessoa': 'UNKNOWN_0',
         'nome_titulado': 'TITULADO DESCONHECIDO',
         'tipo_documento': 'DESCONHECIDO',
         'numero_documento': 'UNKNOWN_0',
-        'sexo': 'X',
-        'data_nascimento': None,
+        'sexo': 'NÃO INFORMADO',
+        'data_nascimento': pd.NaT,
         'idade_ano_base': 0,
         'pais_nacionalidade': 'DESCONHECIDO',
         'raca_cor': 'DESCONHECIDO',
         'grau_titulacao': 'DESCONHECIDO',
-        'data_matricula': None,
+        'data_matricula': pd.NaT,
         'situacao_titulacao': 'DESCONHECIDO',
-        'data_titulacao': None,
+        'data_titulacao': pd.NaT,
         'faixa_etaria': 'DESCONHECIDO',
         'orientador_principal': 'DESCONHECIDO',
         'titulo_trabalho_final': 'DESCONHECIDO',
@@ -276,10 +284,9 @@ def transformar_dados_titulado(df):
         'ano_base': 0,
         'anos_para_titulacao': 0.0,
         'nivel_titulacao': 'DESCONHECIDO'
-    }
+    }])
     
-    df_sk0 = pd.DataFrame([registro_sk0])
-    df_dim_final = pd.concat([df_sk0, df_dim], ignore_index=True)
+    df_dim_final = pd.concat([registro_sk0, df_dim], ignore_index=True)
     
     # Reordenar colunas finais
     colunas_ordenadas = [
@@ -379,13 +386,13 @@ def inserir_dados_titulado(df_dim_titulado, db):
     logger = get_logger()
     
     try:
-        logger.info(f"🔄 Iniciando inserção de {len(df_dim_titulado)} registros de titulados")
+        logger.info(f"� Iniciando inserção de {len(df_dim_titulado):,} registros de titulados...")
         
-        # Configuração de chunks muito pequenos para evitar problemas de memória SQL
-        chunk_size = 1000  # Chunks menores para evitar excesso de parâmetros SQL
+        # Configuração de chunks otimizados para evitar overflow de parâmetros SQL
+        chunk_size = 500  # Tamanho reduzido para evitar overflow (PostgreSQL limite: 32.767 parâmetros)
         total_chunks = (len(df_dim_titulado) + chunk_size - 1) // chunk_size
         
-        logger.info(f"� Dados serão inseridos em {total_chunks} chunks de {chunk_size} registros")
+        logger.info(f"📦 Dados serão inseridos em {total_chunks} chunks de {chunk_size} registros")
         
         for chunk_num in range(total_chunks):
             start_idx = chunk_num * chunk_size
@@ -416,7 +423,7 @@ def inserir_dados_titulado(df_dim_titulado, db):
                 raise Exception(f"Falha na inserção do chunk {chunk_num + 1}")
         
         # Verificação final
-        count_query = "SELECT COUNT(*) as total FROM dim_titulado WHERE sk > 0"
+        count_query = "SELECT COUNT(*) as total FROM dim_titulado WHERE titulado_sk > 0"
         resultado_count = db.execute_query(count_query)
         total_inserido = resultado_count.iloc[0]['total'] if not resultado_count.empty else 0
         
@@ -466,8 +473,8 @@ def main():
         db = get_db_manager()
         
         # 2. Carregar dados
-        logger.info("2️⃣ Carregando dados do MinIO...")
-        df_bruto = carregar_dados_discentes_titulados()
+        logger.info("2️⃣ Carregando dados da dim_discente...")
+        df_bruto = carregar_dados_discentes_titulados(db)
         
         # 3. Filtrar titulados
         logger.info("3️⃣ Filtrando discentes titulados...")
