@@ -19,18 +19,11 @@ CARACTERÍSTICAS EXCLUÍDAS:
 """
 
 import os
+import sys
 import pandas as pd
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from pathlib import Path
-# Adicionar o diretório raiz ao path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.insert(0, project_root)
-
-from src.utils.naming_conventions import NamingConventions
-from src.validation.data_validator import validate_dimension_data, get_validation_summary
-from src.core.exceptions import DimensionCreationError, DataValidationError
 
 
 def get_project_root() -> Path:
@@ -264,17 +257,17 @@ def create_ies_dimension(df_raw: pd.DataFrame) -> pd.DataFrame:
         if col in df_ies_final.columns:
             df_ies_final[col] = df_ies_final[col].astype(str).str.strip()
 
-    # 7. Adicionar registro SK=0 para 'Desconhecido'
+    # 7. Adicionar registro SK=0 para valores não informados
     sk0_record = pd.DataFrame([{
         'ies_sk': 0,
         'cod_entidade_capes': 0,
         'sg_ies': 'XX',
-        'des_ies': 'Desconhecido',
-        'des_regiao': 'Desconhecido',
+        'des_ies': 'Não informado',
+        'des_regiao': 'Não informado',
         'sg_uf': 'XX',
-        'des_municipio_programa': 'Desconhecido',
-        'des_status_juridico': 'Desconhecido',
-        'des_dependencia_adm': 'Desconhecido'
+        'des_municipio_programa': 'Não informado',
+        'des_status_juridico': 'Não informado',
+        'des_dependencia_adm': 'Não informado'
     }])
     
     # 8. Gerar a chave substituta (Surrogate Key)
@@ -316,16 +309,12 @@ def save_to_postgres(df: pd.DataFrame, engine, table_name: str):
             create_table_sql = """
             CREATE TABLE IF NOT EXISTS dim_ies (
                 ies_sk INTEGER PRIMARY KEY,
-                cd_ies INTEGER,
-                sg_ies VARCHAR(20),
-                des_ies VARCHAR(255),
-                des_situacao_ies VARCHAR(50),
-                cod_mantenedora INTEGER,
-                des_dependencia_administrativa VARCHAR(100),
-                des_categoria_administrativa VARCHAR(100),
-                des_organizacao_academica VARCHAR(100),
-                cnpj_ies VARCHAR(20),
-                cd_regiao INTEGER,
+                cod_entidade_capes INTEGER,
+                sg_ies VARCHAR(50),
+                des_ies VARCHAR(255) NOT NULL,
+                des_status_juridico VARCHAR(100),
+                des_dependencia_adm VARCHAR(100),
+                nr_cnpj_ies VARCHAR(20),
                 des_regiao VARCHAR(50),
                 sg_uf VARCHAR(2),
                 des_municipio_programa VARCHAR(100),
@@ -339,8 +328,8 @@ def save_to_postgres(df: pd.DataFrame, engine, table_name: str):
             # Limpar tabela se já existir dados
             conn.exec_driver_sql(f"DELETE FROM {table_name};")
             
-            # Inserir dados
-            df.to_sql(table_name, conn, if_exists='append', index=False, method='multi')
+        # Inserir dados usando to_sql com engine
+        df.to_sql(table_name, engine, if_exists='append', index=False, method='multi')
         print("Dimensão salva com sucesso!")
     except Exception as e:
         print(f"ERRO: Falha ao salvar a dimensão: {e}")

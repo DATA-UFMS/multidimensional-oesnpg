@@ -14,17 +14,8 @@ import sys
 from dotenv import load_dotenv
 import logging
 from pathlib import Path
+
 # Adicionar o diretório raiz ao path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.insert(0, project_root)
-
-from src.utils.naming_conventions import NamingConventions
-from src.validation.data_validator import validate_dimension_data, get_validation_summary
-from src.core.exceptions import DimensionCreationError, DataValidationError
-
-
-# Adicionar path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 sys.path.insert(0, project_root)
@@ -162,64 +153,6 @@ def processar_dataframe_ppg(df):
         
     except Exception as e:
         logger.error(f"❌ Erro durante processamento: {str(e)}")
-        return None
-        
-        # Tratar nota do PPG (pode ser decimal)
-        if 'nota_do_ppg' in df_processed.columns:
-            df_processed['nota_do_ppg'] = pd.to_numeric(df_processed['nota_do_ppg'], errors='coerce').fillna(0.0)
-        
-        # 4. Padronizar modalidade
-        if 'modalidade_ppg' in df_processed.columns:
-            modalidade_map = {
-                'ACADEMICO': 'Acadêmico',
-                'PROFISSIONAL': 'Profissional',
-                'ACADÊMICO': 'Acadêmico'
-            }
-            df_processed['modalidade_ppg'] = df_processed['modalidade_ppg'].str.upper()
-            df_processed['modalidade_ppg'] = df_processed['modalidade_ppg'].map(modalidade_map).fillna('Não informado')
-        
-        # 5. Padronizar situação
-        if 'situacao_ppg' in df_processed.columns:
-            situacao_map = {
-                'EM_FUNCIONAMENTO': 'Em Funcionamento',
-                'EM FUNCIONAMENTO': 'Em Funcionamento',
-                'DESATIVADO': 'Desativado',
-                'SUSPENSO': 'Suspenso'
-            }
-            df_processed['situacao_ppg'] = df_processed['situacao_ppg'].str.upper()
-            df_processed['situacao_ppg'] = df_processed['situacao_ppg'].map(situacao_map).fillna('Não informado')
-        
-        # 6. Padronizar programa em rede
-        if 'programa_em_rede' in df_processed.columns:
-            rede_map = {
-                'SIM': 'Sim',
-                'NÃO': 'Não',
-                'NAO': 'Não'
-            }
-            df_processed['programa_em_rede'] = df_processed['programa_em_rede'].str.upper()
-            df_processed['programa_em_rede'] = df_processed['programa_em_rede'].map(rede_map).fillna('Não')
-        
-        # 7. Padronizar regiões
-        if 'nome_regiao_ies' in df_processed.columns:
-            regiao_map = {
-                'NORTE': 'Norte',
-                'NORDESTE': 'Nordeste',
-                'CENTRO-OESTE': 'Centro-Oeste',
-                'SUDESTE': 'Sudeste',
-                'SUL': 'Sul'
-            }
-            df_processed['nome_regiao_ies'] = df_processed['nome_regiao_ies'].str.upper()
-            df_processed['nome_regiao_ies'] = df_processed['nome_regiao_ies'].map(regiao_map).fillna('Não informado')
-        
-        # 8. Padronizar UF
-        if 'uf_da_ies' in df_processed.columns:
-            df_processed['uf_da_ies'] = df_processed['uf_da_ies'].str.upper().str.strip()
-        
-        logger.info(f"✅ Processamento concluído: {len(df_processed):,} registros processados")
-        return df_processed
-        
-    except Exception as e:
-        logger.error(f"❌ Erro durante processamento: {str(e)}")
         import traceback
         traceback.print_exc()
         return None
@@ -232,13 +165,11 @@ def criar_dimensao_ppg():
     db = get_db_manager()
     
     try:
-        # 1. Remover tabela existente se houver
-        logger.info("🗑️  Removendo dim_ppg existente...")
-        drop_sql = "DROP TABLE IF EXISTS dim_ppg CASCADE;"
-        db.execute_sql(drop_sql)
+        # 1. Remover tabela existente e criar nova estrutura
+        logger.info("🏗️  Criando estrutura dim_ppg...")
         
-        # 2. Criar tabela dim_ppg
-        logger.info("🏗️  Criando nova estrutura dim_ppg...")
+        drop_sql = "DROP TABLE IF EXISTS dim_ppg CASCADE;"
+        
         create_sql = """
         CREATE TABLE dim_ppg (
             sk SERIAL PRIMARY KEY,
@@ -263,35 +194,28 @@ def criar_dimensao_ppg():
         );
         """
         
-        if not db.execute_sql(create_sql):
-            logger.error("❌ Erro ao criar tabela dim_ppg")
-            return False
-            
-        # 3. Inserir registro SK=0 (desconhecido)
-        logger.info("🔧 Inserindo registro DESCONHECIDO (SK=0)...")
-        sk0_data = pd.DataFrame({
-            'ppg_sk': [0],
-            'codigo_programa': ['DESCONHECIDO'],
-            'nome_programa': ['NÃO INFORMADO'],
-            'nota_programa': [0.0],
-            'modalidade': ['NÃO INFORMADO'],
-            'situacao': ['NÃO INFORMADO'],
-            'programa_em_rede': ['Não'],
-            'ies_vinculada': ['NÃO INFORMADO'],
-            'codigo_ies': [0],
-            'uf': ['XX'],
-            'regiao': ['NÃO INFORMADO'],
-            'area_conhecimento': ['NÃO INFORMADO'],
-            'grande_area': ['NÃO INFORMADO'],
-            'area_avaliacao': ['NÃO INFORMADO'],
-            'total_cursos': [0],
-            'quantidade_docentes': [0],
-            'quantidade_discentes': [0],
-            'ano_base': [0]
-        })
+        sk0_sql = """
+        INSERT INTO dim_ppg (
+            sk, codigo_programa, nome_programa, nota_programa, modalidade,
+            situacao, programa_em_rede, ies_vinculada, codigo_ies, uf,
+            regiao, area_conhecimento, grande_area, area_avaliacao,
+            total_cursos, quantidade_docentes, quantidade_discentes, ano_base
+        ) VALUES (
+            0, '0', 'Não informado', 0.0, 'Não informado',
+            'Não informado', 'Não informado', 'Não informado', 0, 'XX',
+            'Não informado', 'Não informado', 'Não informado', 'Não informado',
+            0, 0, 0, 0
+        );
         
-        # Inserir registro SK=0
-        db.save_dataframe(sk0_data, 'dim_ppg', if_exists='append')
+        SELECT setval('dim_ppg_sk_seq', 1, false);
+        """
+        
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql(drop_sql)
+            conn.exec_driver_sql(create_sql)
+            conn.exec_driver_sql(sk0_sql)
+        
+        logger.info("✅ Tabela dim_ppg criada com registro SK=0")
         
         # 4. Carregar e processar dados de PPG da raw_ppg
         df_raw = carregar_dados_raw_ppg()
@@ -346,7 +270,7 @@ def criar_dimensao_ppg():
         
         # 6. Inserir dados processados no banco
         logger.info("💾 Inserindo dados processados no banco...")
-        db.save_dataframe(df_final, 'dim_ppg', if_exists='append')
+        df_final.to_sql('dim_ppg', db.engine, if_exists='append', index=False, method='multi')
         
         # 7. Verificar inserção
         count_query = "SELECT COUNT(*) as total FROM dim_ppg;"
@@ -357,16 +281,16 @@ def criar_dimensao_ppg():
         
         # 8. Criar índices para performance
         logger.info("🔍 Criando índices...")
-        indices_sql = [
-            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_codigo ON dim_ppg(codigo_programa);",
-            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_uf ON dim_ppg(uf);",
-            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_regiao ON dim_ppg(regiao);",
-            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_modalidade ON dim_ppg(modalidade);",
-            "CREATE INDEX IF NOT EXISTS idx_dim_ppg_area ON dim_ppg(area_conhecimento);"
-        ]
+        indices_sql = """
+        CREATE INDEX IF NOT EXISTS idx_dim_ppg_codigo ON dim_ppg(codigo_programa);
+        CREATE INDEX IF NOT EXISTS idx_dim_ppg_uf ON dim_ppg(uf);
+        CREATE INDEX IF NOT EXISTS idx_dim_ppg_regiao ON dim_ppg(regiao);
+        CREATE INDEX IF NOT EXISTS idx_dim_ppg_modalidade ON dim_ppg(modalidade);
+        CREATE INDEX IF NOT EXISTS idx_dim_ppg_area ON dim_ppg(area_conhecimento);
+        """
         
-        for idx_sql in indices_sql:
-            db.execute_sql(idx_sql)
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql(indices_sql)
         
         logger.info("✅ Índices criados")
         return True

@@ -257,35 +257,35 @@ def criar_dimensao_localidade():
     frames.append(df_mun[cols_comuns])
     df_localidade = pd.concat(frames, ignore_index=True)
 
-    # Registro 0 desconhecido
-    registro_desconhecido = NamingConventions.get_standard_unknown_record('localidade')
-    registro_desconhecido.update({
+    # Registro 0 não informado
+    registro_nao_informado = NamingConventions.get_standard_unknown_record('localidade')
+    registro_nao_informado.update({
         'uf': 'XX',
-        'nome_uf': 'DESCONHECIDO',
+        'nome_uf': 'Não informado',
         'sigla_uf': 'XX',
-        'regiao': 'DESCONHECIDO',
+        'regiao': 'Não informado',
         'sigla_regiao': 'XX',
         'latitude': None,
         'longitude': None,
-        'nivel': 'DESCONHECIDO',
+        'nivel': 'Não informado',
         'municipio': None,
         'codigo_ibge': None,
         'capital': 0,
-        'nome': 'DESCONHECIDO'
+        'nome': 'Não informado'
     })
     df_localidade = pd.concat([pd.DataFrame([{
-        'sigla_uf': registro_desconhecido['uf'],
-        'uf': registro_desconhecido['uf'],
-        'nome_uf': registro_desconhecido['nome_uf'],
-        'regiao': registro_desconhecido['regiao'],
-        'sigla_regiao': registro_desconhecido['sigla_regiao'],
-        'latitude': registro_desconhecido['latitude'],
-        'longitude': registro_desconhecido['longitude'],
-        'nivel': registro_desconhecido['nivel'],
-        'municipio': registro_desconhecido['municipio'],
-        'codigo_ibge': registro_desconhecido['codigo_ibge'],
-        'capital': registro_desconhecido['capital'],
-        'nome': registro_desconhecido['nome']
+        'sigla_uf': registro_nao_informado['uf'],
+        'uf': registro_nao_informado['uf'],
+        'nome_uf': registro_nao_informado['nome_uf'],
+        'regiao': registro_nao_informado['regiao'],
+        'sigla_regiao': registro_nao_informado['sigla_regiao'],
+        'latitude': registro_nao_informado['latitude'],
+        'longitude': registro_nao_informado['longitude'],
+        'nivel': registro_nao_informado['nivel'],
+        'municipio': registro_nao_informado['municipio'],
+        'codigo_ibge': registro_nao_informado['codigo_ibge'],
+        'capital': registro_nao_informado['capital'],
+        'nome': registro_nao_informado['nome']
     }]), df_localidade], ignore_index=True)
     
     # CRÍTICO: Recriar coluna 'uf' após TODOS os concats (pode ter sido perdida)

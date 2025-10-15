@@ -297,28 +297,28 @@ def transformar_dados_posdoc(df):
             # Substituir 'nan' string por None
             df_dim[col] = df_dim[col].replace('nan', None)
     
-    # Adicionar registro SK=0 para unknown
+    # Adicionar registro SK=0 para valores não informados
     logger.info("Adicionando registro SK=0...")
     registro_sk0 = pd.DataFrame([{
         'posdoc_sk': 0,
-        'id_posdoc': 'UNKNOWN_0',
-        'id_pessoa': 'UNKNOWN_0',
-        'nome_posdoc': 'PÓS-DOUTORANDO DESCONHECIDO',
-        'tipo_documento': 'DESCONHECIDO',
-        'numero_documento': 'UNKNOWN_0',
-        'sexo': 'NÃO INFORMADO',
+        'id_posdoc': '0',
+        'id_pessoa': '0',
+        'nome_posdoc': 'Não informado',
+        'tipo_documento': 'Não informado',
+        'numero_documento': '0',
+        'sexo': 'Não informado',
         'data_nascimento': pd.NaT,
         'idade_ano_base': 0,
-        'pais_nacionalidade': 'DESCONHECIDO',
-        'raca_cor': 'DESCONHECIDO',
+        'pais_nacionalidade': 'Não informado',
+        'raca_cor': 'Não informado',
         'data_inicio': pd.NaT,
         'data_termino': pd.NaT,
-        'situacao_posdoc': 'DESCONHECIDO',
-        'faixa_etaria': 'DESCONHECIDO',
-        'orientador_principal': 'DESCONHECIDO',
-        'area_concentracao': 'DESCONHECIDO',
+        'situacao_posdoc': 'Não informado',
+        'faixa_etaria': 'Não informado',
+        'orientador_principal': 'Não informado',
+        'area_concentracao': 'Não informado',
         'meses_duracao': 0,
-        'id_lattes': 'UNKNOWN_0',
+        'id_lattes': '0',
         'ano_base': 0
     }])
     

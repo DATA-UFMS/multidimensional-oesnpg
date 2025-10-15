@@ -9,12 +9,17 @@ from dotenv import load_dotenv
 # Edite esta lista para especificar exatamente quais tabelas você quer converter.
 SCHEMA_ALVO = 'public'
 TABELAS_PARA_CONVERTER = [
-    ##"dim_tempo",
-    ##"dim_localidade",
-    ##"dim_ies",
-    ##"dim_tema",
-    ##"dim_ppg",
-     'dim_discente'
+    "dim_tempo",
+    "dim_localidade",
+    "dim_ies",
+    "dim_tema",
+    "dim_ppg",
+    "dim_discente",
+    "dim_docente",
+    "dim_ods",
+    "dim_producao",
+    "fato_producao",
+
 ]
 PASTA_SAIDA_LOCAL = 'parquet_output'
 

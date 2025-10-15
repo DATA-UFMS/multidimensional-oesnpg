@@ -277,33 +277,33 @@ def criar_dim_discente():
         # 2. Transformar dados
         df_dim = transformar_dados_discente(df_raw)
         
-        # 2.1. Adicionar registro SK=0 para valores desconhecidos
-        logger.info("🔧 Adicionando registro SK=0 para valores desconhecidos...")
+        # 2.1. Adicionar registro SK=0 para valores não informados
+        logger.info("🔧 Adicionando registro SK=0 para valores não informados...")
         
         sk0_record = pd.DataFrame([{
             'discente_sk': 0,
-            'id_discente': 'UNKNOWN_0',
-            'id_pessoa': 'UNKNOWN_PESSOA_0',
-            'nome_discente': 'DISCENTE DESCONHECIDO',
-            'tipo_documento': 'DESCONHECIDO',
-            'numero_documento': '00000000000',
-            'sexo': 'NÃO INFORMADO',
+            'id_discente': '0',
+            'id_pessoa': '0',
+            'nome_discente': 'Não informado',
+            'tipo_documento': 'Não informado',
+            'numero_documento': '0',
+            'sexo': 'Não informado',
             'data_nascimento': pd.NaT,
             'idade_ano_base': 0,
-            'pais_nacionalidade': 'DESCONHECIDO',
-            'tipo_nacionalidade': 'DESCONHECIDA',
-            'raca_cor': 'NÃO DECLARADO',
+            'pais_nacionalidade': 'Não informado',
+            'tipo_nacionalidade': 'Não informado',
+            'raca_cor': 'Não informado',
             'necessidade_especial': 'N',
-            'status_ingressante': 'DESCONHECIDO',
-            'grau_academico': 'DESCONHECIDO',
+            'status_ingressante': 'Não informado',
+            'grau_academico': 'Não informado',
             'data_matricula': pd.NaT,
-            'situacao_discente': 'DESCONHECIDO',
+            'situacao_discente': 'Não informado',
             'data_situacao': pd.NaT,
-            'faixa_etaria': 'DESCONHECIDA',
-            'orientador_principal': 'ORIENTADOR DESCONHECIDO',
-            'titulo_tese_dissertacao': 'TÍTULO DESCONHECIDO',
+            'faixa_etaria': 'Não informado',
+            'orientador_principal': 'Não informado',
+            'titulo_tese_dissertacao': 'Não informado',
             'meses_para_titulacao': 0,
-            'id_lattes': 'UNKNOWN_LATTES_0',
+            'id_lattes': '0',
             'ano_base': 0
         }])
         

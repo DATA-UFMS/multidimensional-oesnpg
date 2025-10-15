@@ -9,6 +9,7 @@ para siglas (ex: 'SÃO PAULO' -> 'SP').
 
 import pandas as pd
 import os
+import sys
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 import argparse
@@ -17,10 +18,6 @@ from pathlib import Path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 sys.path.insert(0, project_root)
-
-from src.utils.naming_conventions import NamingConventions
-from src.validation.data_validator import validate_dimension_data, get_validation_summary
-from src.core.exceptions import DimensionCreationError, DataValidationError
 
 
 # Mapeamento de UF para garantir consistência
@@ -101,9 +98,9 @@ def create_dimension_from_raw(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     # Adiciona o registro SK=0 para valores desconhecidos
     sk0_record = pd.DataFrame([{
-        'tema_sk': 0, 'macrotema_id': 0, 'macrotema_nome': 'DESCONHECIDO',
-        'tema_id': 0, 'tema_nome': 'DESCONHECIDO',
-        'palavrachave_id': 0, 'palavra_chave': 'DESCONHECIDO',
+        'tema_sk': 0, 'macrotema_id': 0, 'macrotema_nome': 'Não informado',
+        'tema_id': 0, 'tema_nome': 'Não informado',
+        'palavrachave_id': 0, 'palavra_chave': 'Não informado',
         'sigla_uf': 'XX'
     }])
     

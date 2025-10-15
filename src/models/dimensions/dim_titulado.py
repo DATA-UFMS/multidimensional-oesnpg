@@ -258,32 +258,32 @@ def transformar_dados_titulado(df):
             # Substituir 'nan' string por None
             df_dim[col] = df_dim[col].replace('nan', None)
     
-    # Adicionar registro SK=0 para unknown
+    # Adicionar registro SK=0 para valores não informados
     logger.info("Adicionando registro SK=0...")
     registro_sk0 = pd.DataFrame([{
         'titulado_sk': 0,
-        'id_discente_original': 'UNKNOWN_0',
-        'id_pessoa': 'UNKNOWN_0',
-        'nome_titulado': 'TITULADO DESCONHECIDO',
-        'tipo_documento': 'DESCONHECIDO',
-        'numero_documento': 'UNKNOWN_0',
-        'sexo': 'NÃO INFORMADO',
+        'id_discente_original': '0',
+        'id_pessoa': '0',
+        'nome_titulado': 'Não informado',
+        'tipo_documento': 'Não informado',
+        'numero_documento': '0',
+        'sexo': 'Não informado',
         'data_nascimento': pd.NaT,
         'idade_ano_base': 0,
-        'pais_nacionalidade': 'DESCONHECIDO',
-        'raca_cor': 'DESCONHECIDO',
-        'grau_titulacao': 'DESCONHECIDO',
+        'pais_nacionalidade': 'Não informado',
+        'raca_cor': 'Não informado',
+        'grau_titulacao': 'Não informado',
         'data_matricula': pd.NaT,
-        'situacao_titulacao': 'DESCONHECIDO',
+        'situacao_titulacao': 'Não informado',
         'data_titulacao': pd.NaT,
-        'faixa_etaria': 'DESCONHECIDO',
-        'orientador_principal': 'DESCONHECIDO',
-        'titulo_trabalho_final': 'DESCONHECIDO',
+        'faixa_etaria': 'Não informado',
+        'orientador_principal': 'Não informado',
+        'titulo_trabalho_final': 'Não informado',
         'meses_para_titulacao': 0,
-        'id_lattes': 'UNKNOWN_0',
+        'id_lattes': '0',
         'ano_base': 0,
         'anos_para_titulacao': 0.0,
-        'nivel_titulacao': 'DESCONHECIDO'
+        'nivel_titulacao': 'Não informado'
     }])
     
     df_dim_final = pd.concat([registro_sk0, df_dim], ignore_index=True)
