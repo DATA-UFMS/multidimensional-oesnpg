@@ -3,7 +3,7 @@
 🎓 DIMENSÃO PPG - Data Warehouse Observatório CAPES
 =======================================================
 Cria a dimensão dim_ppg baseada nos dados da raw_ppg
-Estrutura: sk, informações dos Programas de Pós-Graduação
+Estrutura: ppg_sk, informações dos Programas de Pós-Graduação
 Data: 19/09/2025 - Atualizada para usar raw_ppg como fonte
 """
 
@@ -172,13 +172,13 @@ def criar_dimensao_ppg():
         
         create_sql = """
         CREATE TABLE dim_ppg (
-            sk SERIAL PRIMARY KEY,
+            ppg_sk SERIAL PRIMARY KEY,
             codigo_programa VARCHAR(50),
             nome_programa VARCHAR(500),
             nota_programa DECIMAL(3,1),
             modalidade VARCHAR(50),
             situacao VARCHAR(50),
-            programa_em_rede VARCHAR(10),
+            programa_em_rede VARCHAR(50),
             ies_vinculada VARCHAR(500),
             codigo_ies INTEGER,
             uf VARCHAR(10),
@@ -196,7 +196,7 @@ def criar_dimensao_ppg():
         
         sk0_sql = """
         INSERT INTO dim_ppg (
-            sk, codigo_programa, nome_programa, nota_programa, modalidade,
+            ppg_sk, codigo_programa, nome_programa, nota_programa, modalidade,
             situacao, programa_em_rede, ies_vinculada, codigo_ies, uf,
             regiao, area_conhecimento, grande_area, area_avaliacao,
             total_cursos, quantidade_docentes, quantidade_discentes, ano_base
@@ -207,7 +207,7 @@ def criar_dimensao_ppg():
             0, 0, 0, 0
         );
         
-        SELECT setval('dim_ppg_sk_seq', 1, false);
+        SELECT setval(pg_get_serial_sequence('dim_ppg','ppg_sk'), 1, false);
         """
         
         with db.engine.begin() as conn:
@@ -267,6 +267,9 @@ def criar_dimensao_ppg():
                     df_final[col_destino] = 'Não'
                 else:
                     df_final[col_destino] = 'Não informado'
+
+        if 'nome_programa' in df_final.columns:
+            df_final['nome_programa'] = df_final['nome_programa'].fillna('Não informado').astype(str).str.upper()
         
         # 6. Inserir dados processados no banco
         logger.info("💾 Inserindo dados processados no banco...")
@@ -322,7 +325,7 @@ def validar_dimensao_ppg():
             regiao,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE sk > 0
+        WHERE ppg_sk > 0
         GROUP BY regiao
         ORDER BY qtd_ppg DESC;
         """
@@ -336,7 +339,7 @@ def validar_dimensao_ppg():
             modalidade,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE sk > 0
+        WHERE ppg_sk > 0
         GROUP BY modalidade
         ORDER BY qtd_ppg DESC;
         """
@@ -350,7 +353,7 @@ def validar_dimensao_ppg():
             situacao,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE sk > 0
+        WHERE ppg_sk > 0
         GROUP BY situacao
         ORDER BY qtd_ppg DESC;
         """
@@ -364,7 +367,7 @@ def validar_dimensao_ppg():
             grande_area,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE sk > 0
+        WHERE ppg_sk > 0
         GROUP BY grande_area
         ORDER BY qtd_ppg DESC
         LIMIT 10;
@@ -379,7 +382,7 @@ def validar_dimensao_ppg():
             nota_programa,
             COUNT(*) as qtd_ppg
         FROM dim_ppg 
-        WHERE sk > 0 AND nota_programa > 0
+        WHERE ppg_sk > 0 AND nota_programa > 0
         GROUP BY nota_programa
         ORDER BY nota_programa DESC;
         """

@@ -1,150 +1,149 @@
 erDiagram
-    %% ===============================================
-    %% TABELA FATO CENTRAL
-    %% ===============================================
-    fato_pos_graduacao {
-        int tempo_sk FK "Chave da dimensão tempo"
-        int ppg_sk FK "Chave da dimensão PPG"
-        int ies_sk FK "Chave da dimensão IES"
-        int localidade_sk FK "Chave da dimensão localidade"
-        int tema_sk FK "Chave da dimensão tema"
-        int producao_sk FK "Chave da dimensão produção"
-        int ods_sk FK "Chave da dimensão ODS"
-        int docente_sk FK "Chave da dimensão docente"
-        
-        int num_cursos "Número de cursos"
-        int num_trabalhos_conclusao "Trabalhos de conclusão total"
-        int num_tc_mestrado "TCs mestrado"
-        int num_tc_doutorado "TCs doutorado"
-        int num_trabalhos_pesquisa "Trabalhos de pesquisa"
-        int num_artigos_publicados "Artigos publicados"
-        int num_livros_publicados "Livros publicados"
-        int num_capitulos_livro "Capítulos de livro"
-        int num_producao_tecnica "Produção técnica"
-        int num_orientacoes "Orientações"
-        int num_docentes_total "Total docentes"
-        int num_doutores "Docentes doutores"
-        int num_regime_dedicacao "Regime dedicação exclusiva"
-        int num_discentes_matriculados "Discentes matriculados"
-        int num_bolsas_concedidas "Bolsas concedidas"
-        decimal investimento_pesquisa "Investimento em pesquisa (R$)"
-        decimal nota_avaliacao_capes "Nota avaliação CAPES"
-        decimal impacto_ods "Impacto nos ODS"
+    %% =========================================================
+    %% STAR SCHEMA - PRODUÇÃO POR AUTORIA E TEMA (DW OESNPG)
+    %% =========================================================
+
+    fact_producao_tema {
+        int     producao_tema_id PK "Chave surrogate da fato"
+        bigint  producao_id "ID da produção (negócio)"
+        int     tempo_sk FK "Data/ano base"
+        int     tema_sk FK "Tema/macrotema associado"
+        int     ods_sk FK "ODS (quando houver)"
+        int     ppg_sk FK "Programa de pós-graduação"
+        int     ies_sk FK "Instituição"
+        int     docente_sk FK "Autor docente"
+        int     discente_sk FK "Autor discente"
+        int     titulado_sk FK "Autor egresso"
+        int     posdoc_sk FK "Autor pós-doc"
+        varchar tipo_autor "Categoria do autor no registro"
+        int     ordem_autor "Posição do autor na lista"
+        int     qtd_autores "Autores contados (sempre 1)"
+        int     qtd_producoes "Produções contadas (sempre 1)"
+        int     ano_base "Ano base da autoria"
+        varchar fonte_dados "Origem (add_producao_autor)"
+        timestamp created_at "Timestamp de carga"
     }
 
-    %% ===============================================
-    %% DIMENSÕES
-    %% ===============================================
-    
     dim_tempo {
-        int tempo_sk PK "Chave surrogate temporal"
-        date data_completa "Data completa YYYY-MM-DD"
-        int ano "Ano (2021-2024)"
-        int semestre "Semestre (1-2)"
-        int trimestre "Trimestre (1-4)"
-        int mes "Mês (1-12)"
-        int dia "Dia (1-31)"
-        int dia_semana "Dia da semana (1-7)"
-        varchar fim_de_semana "S/N"
-    }
-
-    dim_localidade {
-        int localidade_sk PK "Chave surrogate localidade"
-        varchar uf "Unidade Federativa"
-        varchar nome_uf "Nome completo do estado"
-        varchar sigla_uf "Sigla UF (2 chars)"
-        varchar regiao "Região (Norte, Nordeste, etc)"
-        decimal latitude "Coordenada geográfica"
-        decimal longitude "Coordenada geográfica"
-        int populacao "População estimada"
-        varchar capital "Cidade capital"
-    }
-
-    dim_ies {
-        int ies_sk PK "Chave surrogate IES"
-        varchar codigo_ies "Código único da IES"
-        varchar nome_ies "Nome da instituição"
-        varchar sigla "Sigla da IES"
-        varchar categoria_administrativa "Pública/Privada"
-        varchar organizacao_academica "Universidade/Centro/Faculdade"
-        varchar uf "Estado da IES"
-        varchar municipio "Cidade da IES"
-        varchar regiao "Região geográfica"
-        varchar site "Website institucional"
-    }
-
-    dim_ppg {
-        int ppg_sk PK "Chave surrogate PPG"
-        varchar codigo_programa "Código CAPES do programa"
-        varchar nome_programa "Nome do programa"
-        varchar nivel "Mestrado/Doutorado/Ambos"
-        varchar modalidade "Acadêmico/Profissional"
-        varchar area_avaliacao "Área de avaliação CAPES"
-        varchar area_basica "Área básica do conhecimento"
-        varchar ies_vinculada "IES do programa"
-        varchar uf "Estado do programa"
-        varchar regiao "Região do programa"
-        varchar situacao "Ativo/Inativo"
-        int nota_capes "Nota CAPES (3-7)"
+        int       tempo_sk PK "Chave surrogate temporal"
+        date      data "Data completa"
+        int       ano "Ano"
+        int       semestre "Semestre"
+        int       trimestre "Trimestre"
+        int       mes "Mês"
+        int       dia "Dia"
+        varchar   dia_semana "Nome do dia"
+        varchar   fim_de_semana "S ou N"
     }
 
     dim_tema {
-        int tema_sk PK "Chave surrogate tema"
-        varchar codigo_tema "Código do tema"
-        varchar nome_tema "Nome do tema de pesquisa"
-        varchar area_concentracao "Área de concentração"
-        varchar linha_pesquisa "Linha de pesquisa"
-        varchar palavras_chave "Palavras-chave"
-        varchar descricao "Descrição detalhada"
+        int     tema_sk PK "Chave surrogate"
+        int     macrotema_id "ID macrotema"
+        varchar macrotema_nome "Nome macrotema"
+        int     tema_id "ID tema CAPES"
+        varchar tema_nome "Descrição do tema"
+        int     palavrachave_id "ID palavra-chave"
+        varchar palavra_chave "Descrição da palavra-chave"
+        varchar sigla_uf "UF curadoria"
+        timestamp created_at "Timestamp de carga"
     }
 
-    dim_producao {
-        int producao_sk PK "Chave surrogate produção"
-        varchar tipo_producao "Tipo de produção científica"
-        varchar categoria "Categoria da produção"
-        varchar veiculo "Veículo de publicação"
-        varchar qualis "Classificação Qualis"
-        varchar issn_isbn "ISSN ou ISBN"
-        varchar indexador "Indexador (SciELO, Scopus, etc)"
-        varchar idioma "Idioma da publicação"
+    dim_ppg {
+        int     ppg_sk PK "Chave surrogate"
+        varchar codigo_programa "Código CAPES"
+        varchar nome_programa "Nome do PPG"
+        varchar modalidade "Acadêmico/Profissional"
+        varchar situacao "Situação CAPES"
+        numeric nota_capes "Nota CAPES"
+        varchar area_avaliacao "Área de avaliação"
+        varchar grande_area "Grande área"
+        int     ies_sk FK "Ref. para dim_ies"
+        varchar uf "UF do programa"
+        varchar regiao "Região"
     }
 
-    dim_ods {
-        int ods_sk PK "Chave surrogate ODS"
-        int numero_ods "Número do ODS (1-17)"
-        varchar nome_ods "Nome do ODS"
-        varchar titulo_original "Título original em inglês"
-        varchar descricao "Descrição do objetivo"
-        varchar cor_oficial "Cor oficial do ODS"
-        varchar icone "Nome do arquivo de ícone"
-        varchar meta_principal "Meta principal"
+    dim_ies {
+        int     ies_sk PK "Chave surrogate"
+        bigint  cod_entidade_capes "Código CAPES"
+        varchar nome_ies "Nome oficial"
+        varchar sigla_ies "Sigla"
+        varchar categoria_adm "Pública/Privada"
+        varchar organizacao_academica "Universidade, IF, etc."
+        varchar uf "UF"
+        varchar municipio "Município"
+        varchar regiao "Região"
     }
 
     dim_docente {
-        int docente_sk PK "Chave surrogate docente"
-        varchar codigo_docente "Código único do docente"
-        varchar nome_docente "Nome do docente"
-        varchar titulacao_maxima "Doutorado/Mestrado/Especialização"
-        varchar regime_trabalho "DE/40h/20h/Horista"
-        varchar vinculo "Permanente/Visitante/Colaborador"
-        varchar area_formacao "Área de formação"
-        varchar instituicao_titulacao "IES da titulação"
-        varchar pais_titulacao "País da titulação"
-        int ano_titulacao "Ano da titulação máxima"
-        varchar genero "M/F/Outro"
-        varchar ativo "S/N"
+        int     docente_sk PK "Chave surrogate"
+        bigint  id_pessoa "ID pessoa CAPES"
+        varchar nome_docente "Nome completo"
+        varchar categoria "Categoria no PPG"
+        varchar regime_trabalho "DE, 40h, 20h..."
+        varchar possui_doutorado "S/N"
+        varchar area_avaliacao "Área CAPES"
+        varchar uf_programa "UF do programa"
     }
 
-    %% ===============================================
-    %% RELACIONAMENTOS (FOREIGN KEYS)
-    %% ===============================================
-    
-    fato_pos_graduacao ||--|| dim_tempo : "tempo_sk"
-    fato_pos_graduacao ||--|| dim_localidade : "localidade_sk"
-    fato_pos_graduacao ||--|| dim_ies : "ies_sk"
-    fato_pos_graduacao ||--|| dim_ppg : "ppg_sk"
-    fato_pos_graduacao ||--|| dim_tema : "tema_sk"
-    fato_pos_graduacao ||--|| dim_producao : "producao_sk"
-    fato_pos_graduacao ||--|| dim_ods : "ods_sk"
-    fato_pos_graduacao ||--|| dim_docente : "docente_sk"
+    dim_discente {
+        int     discente_sk PK "Chave surrogate"
+        bigint  id_discente "ID discente CAPES"
+        bigint  id_pessoa "ID pessoa"
+        varchar nome_discente "Nome completo"
+        varchar grau_academico "Mestrado/Doutorado"
+        varchar situacao "Situação no programa"
+        date    data_matricula "Data de ingresso"
+    }
 
+    dim_titulado {
+        int     titulado_sk PK "Chave surrogate"
+        bigint  id_pessoa "ID pessoa"
+        varchar nome_titulado "Nome do egresso"
+        int     ano_titulacao "Ano de titulação"
+        varchar grau "Grau obtido"
+        varchar tema_trabalho "Tema da dissertação/tese"
+    }
+
+    dim_posdoc {
+        int     posdoc_sk PK "Chave surrogate"
+        bigint  id_pessoa "ID pessoa"
+        varchar nome_posdoc "Nome do pós-doutor"
+        varchar instituicao_origem "Instituição de origem"
+        date    inicio_estagio "Início do estágio"
+        date    fim_estagio "Fim do estágio"
+    }
+
+    dim_ods {
+        int     ods_sk PK "Chave surrogate"
+        int     numero_ods "ODS 1..17"
+        varchar nome_ods "Título traduzido"
+        varchar meta_principal "Meta principal"
+        varchar descricao "Descrição resumida"
+    }
+
+    %% =========================================================
+    %% RELACIONAMENTOS (FKS)
+    %% =========================================================
+    fact_producao_tema ||--|| dim_tempo : "tempo_sk"
+    fact_producao_tema ||--|| dim_tema : "tema_sk"
+    fact_producao_tema ||--o{ dim_ppg : "ppg_sk"
+    fact_producao_tema ||--o{ dim_ies : "ies_sk"
+    fact_producao_tema ||--o{ dim_docente : "docente_sk"
+    fact_producao_tema ||--o{ dim_discente : "discente_sk"
+    fact_producao_tema ||--o{ dim_titulado : "titulado_sk"
+    fact_producao_tema ||--o{ dim_posdoc : "posdoc_sk"
+    fact_producao_tema ||--o{ dim_ods : "ods_sk"
+
+    dim_ppg ||--|| dim_ies : "ies_sk"
+
+    %% =========================================================
+    %% OBSERVAÇÕES
+    %% =========================================================
+    %%{
+        note: "Status de implementação (Out/2025)"
+        note: "• fact_producao_tema, dim_tempo e dim_tema já carregadas."
+        note: "• dim_ppg, dim_ies, dim_docente, dim_discente, dim_titulado e"
+        note: "  dim_posdoc estão em desenvolvimento (valores de SK=0 enquanto"
+        note: "  dimensões não forem populadas)."
+        note: "• O relacionamento com dim_ods depende da fact_tema_ods."
+*** End Patch

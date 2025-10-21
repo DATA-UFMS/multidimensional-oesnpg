@@ -146,51 +146,50 @@ def create_raw_ppg_table(engine):
     """Cria a tabela raw_ppg no PostgreSQL."""
     logger.info("🏗️ Criando tabela raw_ppg...")
     
-    create_table_sql = """
-    DROP TABLE IF EXISTS raw_ppg CASCADE;
-    
-    CREATE TABLE raw_ppg (
-        id SERIAL PRIMARY KEY,
-        ano_base INTEGER,
-        codigo_capes_da_ies INTEGER,
-        nome_da_ies VARCHAR(500),
-        nome_da_regiao_da_ies VARCHAR(50),
-        sigla_da_regiao_da_ies VARCHAR(10),
-        cd_regiao_ibge INTEGER,
-        uf_da_ies VARCHAR(10),
-        status_juridico_da_ies VARCHAR(100),
-        codigo_do_ppg VARCHAR(50),
-        nome_ppg VARCHAR(500),
-        nota_do_ppg DECIMAL(3,1),
-        modalidade_do_ppg VARCHAR(50),
-        situacao_do_ppg VARCHAR(100),
-        programa_em_rede VARCHAR(10),
-        codigo_grande_area_do_ppg INTEGER,
-        grande_area_do_ppg VARCHAR(200),
-        codigo_area_de_conhecimento_do_ppg INTEGER,
-        area_de_conhecimento_do_ppg VARCHAR(300),
-        id_area_de_avaliacao_do_ppg INTEGER,
-        area_de_avaliacao_do_ppg VARCHAR(200),
-        total_de_cursos_do_ppg INTEGER,
-        quantidade_de_docentes_no_ppg INTEGER,
-        quantidade_de_discentes_matriculados_no_ppg INTEGER,
-        fonte_arquivo VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    
-    -- Criar índices para performance
-    CREATE INDEX idx_raw_ppg_codigo_ppg ON raw_ppg(codigo_do_ppg);
-    CREATE INDEX idx_raw_ppg_codigo_ies ON raw_ppg(codigo_capes_da_ies);
-    CREATE INDEX idx_raw_ppg_uf ON raw_ppg(uf_da_ies);
-    CREATE INDEX idx_raw_ppg_modalidade ON raw_ppg(modalidade_do_ppg);
-    CREATE INDEX idx_raw_ppg_grande_area ON raw_ppg(codigo_grande_area_do_ppg);
-    CREATE INDEX idx_raw_ppg_area_conhecimento ON raw_ppg(codigo_area_de_conhecimento_do_ppg);
-    """
+    statements = [
+        "DROP TABLE IF EXISTS raw_ppg CASCADE",
+        """
+        CREATE TABLE raw_ppg (
+            id SERIAL PRIMARY KEY,
+            ano_base INTEGER,
+            codigo_capes_da_ies INTEGER,
+            nome_da_ies VARCHAR(500),
+            nome_da_regiao_da_ies VARCHAR(50),
+            sigla_da_regiao_da_ies VARCHAR(10),
+            cd_regiao_ibge INTEGER,
+            uf_da_ies VARCHAR(10),
+            status_juridico_da_ies VARCHAR(100),
+            codigo_do_ppg VARCHAR(50),
+            nome_ppg VARCHAR(500),
+            nota_do_ppg DECIMAL(3,1),
+            modalidade_do_ppg VARCHAR(50),
+            situacao_do_ppg VARCHAR(100),
+            programa_em_rede VARCHAR(10),
+            codigo_grande_area_do_ppg INTEGER,
+            grande_area_do_ppg VARCHAR(200),
+            codigo_area_de_conhecimento_do_ppg INTEGER,
+            area_de_conhecimento_do_ppg VARCHAR(300),
+            id_area_de_avaliacao_do_ppg INTEGER,
+            area_de_avaliacao_do_ppg VARCHAR(200),
+            total_de_cursos_do_ppg INTEGER,
+            quantidade_de_docentes_no_ppg INTEGER,
+            quantidade_de_discentes_matriculados_no_ppg INTEGER,
+            fonte_arquivo VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        "CREATE INDEX idx_raw_ppg_codigo_ppg ON raw_ppg(codigo_do_ppg)",
+        "CREATE INDEX idx_raw_ppg_codigo_ies ON raw_ppg(codigo_capes_da_ies)",
+        "CREATE INDEX idx_raw_ppg_uf ON raw_ppg(uf_da_ies)",
+        "CREATE INDEX idx_raw_ppg_modalidade ON raw_ppg(modalidade_do_ppg)",
+        "CREATE INDEX idx_raw_ppg_grande_area ON raw_ppg(codigo_grande_area_do_ppg)",
+        "CREATE INDEX idx_raw_ppg_area_conhecimento ON raw_ppg(codigo_area_de_conhecimento_do_ppg)"
+    ]
     
     try:
-        with engine.connect() as conn:
-            conn.execute(text(create_table_sql))
-            conn.commit()
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
         logger.info("✅ Tabela raw_ppg criada com sucesso")
         
     except Exception as e:

@@ -87,6 +87,14 @@ def criar_dimensao_localidade():
         'PA': 'NORTE','PB': 'NORDESTE','PR': 'SUL','PE': 'NORDESTE','PI': 'NORDESTE','RJ': 'SUDESTE','RN': 'NORDESTE',
         'RS': 'SUL','RO': 'NORTE','RR': 'NORTE','SC': 'SUL','SP': 'SUDESTE','SE': 'NORDESTE','TO': 'NORTE'
     }
+    nome_por_uf = {
+        'AC': 'Acre', 'AL': 'Alagoas', 'AP': 'Amapá', 'AM': 'Amazonas', 'BA': 'Bahia', 'CE': 'Ceará',
+        'DF': 'Distrito Federal', 'ES': 'Espírito Santo', 'GO': 'Goiás', 'MA': 'Maranhão', 'MT': 'Mato Grosso',
+        'MS': 'Mato Grosso do Sul', 'MG': 'Minas Gerais', 'PA': 'Pará', 'PB': 'Paraíba', 'PR': 'Paraná',
+        'PE': 'Pernambuco', 'PI': 'Piauí', 'RJ': 'Rio de Janeiro', 'RN': 'Rio Grande do Norte',
+        'RS': 'Rio Grande do Sul', 'RO': 'Rondônia', 'RR': 'Roraima', 'SC': 'Santa Catarina',
+        'SP': 'São Paulo', 'SE': 'Sergipe', 'TO': 'Tocantins'
+    }
 
     # Carregar estados (UFs)
     try:
@@ -145,7 +153,20 @@ def criar_dimensao_localidade():
         # Reordenar colunas (inclui alias 'uf' para validação)
         df_estados = df_estados[['sigla_uf','uf','nome_uf','regiao','sigla_regiao','latitude','longitude','nivel','municipio','codigo_ibge','capital','nome']]
     else:
-        df_estados = pd.DataFrame([])
+        df_estados = pd.DataFrame({
+            'sigla_uf': list(nome_por_uf.keys()),
+            'uf': list(nome_por_uf.keys()),
+            'nome_uf': list(nome_por_uf.values()),
+            'regiao': [regiao_por_uf.get(sigla) for sigla in nome_por_uf.keys()],
+            'sigla_regiao': [regiao_por_uf.get(sigla, '')[:2].upper() if regiao_por_uf.get(sigla) else None for sigla in nome_por_uf.keys()],
+            'latitude': [None] * len(nome_por_uf),
+            'longitude': [None] * len(nome_por_uf),
+            'nivel': ['UF'] * len(nome_por_uf),
+            'municipio': [None] * len(nome_por_uf),
+            'codigo_ibge': [None] * len(nome_por_uf),
+            'capital': [0] * len(nome_por_uf),
+            'nome': list(nome_por_uf.values())
+        })
 
     # Carregar municípios
     try:
@@ -241,6 +262,20 @@ def criar_dimensao_localidade():
     # Alias esperado pelo validador
     if 'uf' not in df_mun.columns and 'sigla_uf' in df_mun.columns:
         df_mun['uf'] = df_mun['sigla_uf']
+
+    # Preencher nome_uf a partir do mapeamento de estados quando ausente
+    if 'nome_uf' not in df_mun.columns:
+        df_mun['nome_uf'] = None
+    if 'sigla_uf' in df_mun.columns and not df_estados.empty:
+        mapa_nome_uf = (
+            df_estados[['sigla_uf', 'nome_uf']]
+            .dropna(subset=['sigla_uf'])
+            .drop_duplicates()
+            .set_index('sigla_uf')
+        )
+        df_mun['nome_uf'] = df_mun['nome_uf'].fillna(
+            df_mun['sigla_uf'].map(mapa_nome_uf['nome_uf'])
+        )
 
     # Selecionar colunas finais compatíveis
     cols_comuns = ['sigla_uf','uf','nome_uf','regiao','sigla_regiao','latitude','longitude','nivel','municipio','codigo_ibge','capital','nome']
@@ -373,7 +408,7 @@ def salvar_dimensao_localidade(df_localidade):
                 sigla_regiao VARCHAR(3),
                 latitude DECIMAL(10,7),
                 longitude DECIMAL(10,7),
-                nivel VARCHAR(12) NOT NULL,
+                nivel VARCHAR(40) NOT NULL,
                 municipio VARCHAR(120),
                 codigo_ibge BIGINT,
                 capital SMALLINT DEFAULT 0,
@@ -415,4 +450,3 @@ if __name__ == "__main__":
     for nivel in df_localidade['nivel'].unique():
         count = len(df_localidade[df_localidade['nivel'] == nivel])
         print(f"  {nivel}: {count}")
-

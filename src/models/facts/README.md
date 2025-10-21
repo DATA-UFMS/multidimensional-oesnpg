@@ -12,6 +12,40 @@ A **FATO** foi criada para substituir a estrutura complexa anterior com uma abor
 3. **🏫 Quantidade de temas por IES**
 4. **🗺️ Quantidade de temas por região**
 
+## 🆕 Fato Produção × Tema
+
+Além da fato temática consolidada acima, o projeto agora conta com a **fact_producao_tema**, construída a partir do parquet `add_producao_autor` (ou `add_autor_producao`) localizado em `staging/data`. O novo pipeline (`src/models/facts/fact_producao_tema.py`) segue o padrão das classes `FactETL` e carrega uma granularidade autoria × produção × tema, permitindo cruzamentos diretos com:
+
+- `dim_tema` (tema/macrotema/palavra-chave)
+- `dim_ppg` e `dim_ies`
+- `dim_docente`, `dim_discente`, `dim_titulado`, `dim_posdoc`
+- `dim_tempo` (ano base da produção)
+- `fact_tema_ods`/`dim_ods` (quando disponível)
+
+### Execução
+
+```bash
+python src/models/facts/fact_producao_tema.py \
+  --parquet staging/data/add_producao_autor.parquet \
+  --if-exists replace
+```
+
+O script detecta automaticamente o parquet caso esteja no diretório padrão e recria a tabela `fact_producao_tema` com índices e *foreign keys* dinâmicas para as dimensões disponíveis no banco.
+
+## 🆕 Fato Titulação (Titulados × Temas)
+
+O pipeline `src/models/facts/fact_titulacao.py` consome o parquet `staging/data/mapeamentos_titulados_2023.parquet` e cruza os titulados identificados na `dim_titulado` com os temas da `dim_tema`, sinalizando o nível de confiança atribuído pelo modelo de classificação.
+
+### Execução
+
+```bash
+python src/models/facts/fact_titulacao.py \
+    --parquet staging/data/mapeamentos_titulados_2023.parquet \
+    --ano-base 2023
+```
+
+O script recria a tabela `fact_titulacao` com FKs opcionais para `dim_titulado`, `dim_tema` e `dim_tempo`. Registros sem correspondência recebem `match_status = 'UNMATCHED'` para facilitar auditorias.
+
 ## 🚀 Como Executar
 
 ### Criação da FATO

@@ -1,35 +1,17 @@
-# Scripts DDL Simplificados
+# DDL (Documentação)
 
-Esta pasta contém apenas os scripts DDL essenciais para o Data Warehouse:
+Esta pasta mantém apenas documentação sobre as decisões de DDL do projeto. As instruções de criação, atualização e validação de tabelas são implementadas diretamente nos pipelines Python, o que garante versionamento único do comportamento.
 
-## 📁 Arquivos
+## Onde as DDL estão definidas
 
-1. **`add_pk.sql`** - Adiciona chaves primárias em todas as 8 dimensões
-2. **`add_fk.sql`** - Adiciona chaves estrangeiras na tabela fato
-3. **`verify_integrity.sql`** - Verifica a integridade das PKs e FKs criadas
+- **Dimensões**: cada arquivo em `src/models/dimensions/` recria sua tabela (DROP + CREATE) e povoa os dados, incluindo chaves primárias e registros `SK=0`.
+- **Fatos**: os arquivos em `src/models/facts/` criam as tabelas fato com todas as `FOREIGN KEY` necessárias.
+- **Rotinas utilitárias**: scripts como `run_all_dimensions.py` e `run_all_raw.py` orquestram a execução completa do ciclo de carga.
 
-## 🚀 Uso
+## Como garantir integridade
 
-Execute os scripts na seguinte ordem:
+1. Execute as rotinas RAW (`run_all_raw.py`).
+2. Carregue dimensões (`run_all_dimensions.py`).
+3. Gere as tabelas fato necessárias (`src/models/facts/*.py`).
 
-```bash
-# 1. Criar primary keys
-psql -d dw_oesnpg -f add_pk.sql
-
-# 2. Criar foreign keys
-psql -d dw_oesnpg -f add_fk.sql
-
-# 3. Verificar integridade
-psql -d dw_oesnpg -f verify_integrity.sql
-```
-
-## ✅ Validação
-
-O script `verify_integrity.sql` deve retornar:
-- 8 Primary Keys criadas
-- 4 Foreign Keys criadas
-- 0 violações de integridade
-
-## 🔧 ETL Master
-
-Estes scripts são executados automaticamente pelo `etl_master.py` ao final do processo ETL.
+Durante esses passos, as constraints de PK/FK são recriadas automaticamente. Não há scripts manuais adicionais nesta pasta.

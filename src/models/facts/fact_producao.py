@@ -275,19 +275,65 @@ def transformar_dados_producao(df, mapeamentos):
 def criar_tabela(db):
     """
     Cria a tabela fact_producao no banco de dados.
+    Verifica quais dimensões existem e adiciona FKs apenas para elas.
     
     Args:
         db: Gerenciador de banco de dados
     """
     logger.info("🗄️ Criando tabela fact_producao...")
     
+    # Verificar quais dimensões existem
+    check_dims_sql = """
+    SELECT 
+        EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dim_tempo') as tem_tempo,
+        EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dim_docente') as tem_docente,
+        EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dim_discente') as tem_discente,
+        EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dim_titulado') as tem_titulado,
+        EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dim_posdoc') as tem_posdoc,
+        EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dim_localidade') as tem_localidade
+    """
+    
+    result = db.execute_query(check_dims_sql)
+    dims = result[0] if result else (False,) * 6
+    tem_tempo, tem_docente, tem_discente, tem_titulado, tem_posdoc, tem_localidade = dims
+    
+    logger.info(f"📊 Dimensões disponíveis:")
+    logger.info(f"   dim_tempo: {'✅' if tem_tempo else '❌'}")
+    logger.info(f"   dim_docente: {'✅' if tem_docente else '❌'}")
+    logger.info(f"   dim_discente: {'✅' if tem_discente else '❌'}")
+    logger.info(f"   dim_titulado: {'✅' if tem_titulado else '❌'}")
+    logger.info(f"   dim_posdoc: {'✅' if tem_posdoc else '❌'}")
+    logger.info(f"   dim_localidade: {'✅' if tem_localidade else '❌'}")
+    
+    # Construir constraints de FK dinamicamente
+    fk_constraints = []
+    if tem_tempo:
+        fk_constraints.append("CONSTRAINT fk_fact_producao_tempo FOREIGN KEY (tempo_sk) REFERENCES dim_tempo(tempo_sk)")
+    if tem_docente:
+        fk_constraints.append("CONSTRAINT fk_fact_producao_docente FOREIGN KEY (docente_sk) REFERENCES dim_docente(docente_sk)")
+    if tem_discente:
+        fk_constraints.append("CONSTRAINT fk_fact_producao_discente FOREIGN KEY (discente_sk) REFERENCES dim_discente(discente_sk)")
+    if tem_titulado:
+        fk_constraints.append("CONSTRAINT fk_fact_producao_titulado FOREIGN KEY (titulado_sk) REFERENCES dim_titulado(titulado_sk)")
+    if tem_posdoc:
+        fk_constraints.append("CONSTRAINT fk_fact_producao_posdoc FOREIGN KEY (posdoc_sk) REFERENCES dim_posdoc(posdoc_sk)")
+    if tem_localidade:
+        fk_constraints.append("CONSTRAINT fk_fact_producao_localidade FOREIGN KEY (localidade_sk) REFERENCES dim_localidade(localidade_sk)")
+    
+    fk_clause = ""
+    if fk_constraints:
+        fk_clause = ",\n        " + ",\n        ".join(fk_constraints)
+        logger.info(f"✅ Adicionando {len(fk_constraints)} foreign key(s)")
+    else:
+        logger.warning("⚠️  Nenhuma FK será adicionada (dimensões não encontradas)")
+    
     # Dropar tabela se existir
     drop_sql = "DROP TABLE IF EXISTS fact_producao CASCADE;"
     db.execute_sql(drop_sql)
     logger.info("🗑️ Tabela fact_producao removida se existia")
     
-    # Criar tabela
-    create_sql = """
+    # Criar tabela com FKs dinâmicas
+    create_sql = f"""
     CREATE TABLE fact_producao (
         producao_id BIGINT NOT NULL,
         tempo_sk INTEGER NOT NULL DEFAULT 0,
@@ -300,12 +346,7 @@ def criar_tabela(db):
         subtipo_producao INTEGER NOT NULL,
         tipo_autor VARCHAR(50),
         ordem_autor INTEGER,
-        qtd_producao INTEGER NOT NULL DEFAULT 1,
-        CONSTRAINT fk_tempo FOREIGN KEY (tempo_sk) REFERENCES dim_tempo(tempo_sk),
-        CONSTRAINT fk_docente FOREIGN KEY (docente_sk) REFERENCES dim_docente(docente_sk),
-        CONSTRAINT fk_discente FOREIGN KEY (discente_sk) REFERENCES dim_discente(discente_sk),
-        CONSTRAINT fk_titulado FOREIGN KEY (titulado_sk) REFERENCES dim_titulado(titulado_sk),
-        CONSTRAINT fk_posdoc FOREIGN KEY (posdoc_sk) REFERENCES dim_posdoc(posdoc_sk)
+        qtd_producao INTEGER NOT NULL DEFAULT 1{fk_clause}
     );
     """
     

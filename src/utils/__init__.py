@@ -1,21 +1,9 @@
 """
-Módulo de Utilitários
-=====================
-Utilitários e funções auxiliares para o Data Warehouse.
+Utilitários compartilhados entre camadas raw, dimensão e fato do DW OESNPG.
+
+Este pacote centraliza helpers de padronização para garantir consistência
+na nomenclatura de colunas, convenções de surrogate keys e execução dos
+pipelines de ETL.
 """
 
-from .naming_conventions import (
-    NamingConventions,
-    FieldMapping,
-    standardize_field_name,
-    validate_dataframe_columns,
-    get_dimension_standard_schema
-)
-
-__all__ = [
-    'NamingConventions',
-    'FieldMapping',
-    'standardize_field_name',
-    'validate_dataframe_columns',
-    'get_dimension_standard_schema'
-]
+__all__ = ["naming_conventions", "etl_base"]

@@ -1,173 +1,178 @@
 #!/usr/bin/env python3
 """
-Geração da Dimensão Tema (dim_tema) a partir da tabela raw_tema.
+Dimensão Tema (dim_tema)
+-----------------------
 
-Este script lê os dados pré-processados da tabela 'raw_tema', que já contém
-os IDs de negócio, e constrói a dimensão final, convertendo os nomes de UF
-para siglas (ex: 'SÃO PAULO' -> 'SP').
+Pipeline padronizado para construir a dimensão de temas e palavras-chave
+provenientes da camada raw_raw_tema. Utiliza a infraestrutura comum de ETL
+definida em ``src.utils.etl_base`` para garantir consistência de logging,
+validação e carga.
 """
 
-import pandas as pd
-import os
+from __future__ import annotations
+
 import sys
-from sqlalchemy import create_engine
-from dotenv import load_dotenv
-import argparse
 from pathlib import Path
-# Adicionar o diretório raiz ao path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.insert(0, project_root)
+
+import pandas as pd
+
+# Garantir raiz do projeto no PYTHONPATH para execuções diretas
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.etl_base import DimensionETL, ETLContext
+from src.utils.naming_conventions import NamingConventions
 
 
-# Mapeamento de UF para garantir consistência
 UF_MAPPING = {
-    'ACRE': 'AC', 'ALAGOAS': 'AL', 'AMAPÁ': 'AP', 'AMAZONAS': 'AM', 'BAHIA': 'BA', 
-    'CEARÁ': 'CE', 'DISTRITO FEDERAL': 'DF', 'ESPÍRITO SANTO': 'ES', 'GOIÁS': 'GO',
-    'MARANHÃO': 'MA', 'MATO GROSSO': 'MT', 'MATO GROSSO DO SUL': 'MS', 'MINAS GERAIS': 'MG',
-    'PARÁ': 'PA', 'PARAÍBA': 'PB', 'PARANÁ': 'PR', 'PERNAMBUCO': 'PE', 'PIAUÍ': 'PI',
-    'RIO DE JANEIRO': 'RJ', 'RIO GRANDE DO NORTE': 'RN', 'RIO GRANDE DO SUL': 'RS',
-    'RONDÔNIA': 'RO', 'RORAIMA': 'RR', 'SANTA CATARINA': 'SC', 'SÃO PAULO': 'SP',
-    'SERGIPE': 'SE', 'TOCANTINS': 'TO'
+    "ACRE": "AC",
+    "ALAGOAS": "AL",
+    "AMAPÁ": "AP",
+    "AMAZONAS": "AM",
+    "BAHIA": "BA",
+    "CEARÁ": "CE",
+    "DISTRITO FEDERAL": "DF",
+    "ESPÍRITO SANTO": "ES",
+    "GOIÁS": "GO",
+    "MARANHÃO": "MA",
+    "MATO GROSSO": "MT",
+    "MATO GROSSO DO SUL": "MS",
+    "MINAS GERAIS": "MG",
+    "PARÁ": "PA",
+    "PARAÍBA": "PB",
+    "PARANÁ": "PR",
+    "PERNAMBUCO": "PE",
+    "PIAUÍ": "PI",
+    "RIO DE JANEIRO": "RJ",
+    "RIO GRANDE DO NORTE": "RN",
+    "RIO GRANDE DO SUL": "RS",
+    "RONDÔNIA": "RO",
+    "RORAIMA": "RR",
+    "SANTA CATARINA": "SC",
+    "SÃO PAULO": "SP",
+    "SERGIPE": "SE",
+    "TOCANTINS": "TO",
 }
 
-def get_project_root() -> Path:
-    """Encontra o diretório raiz do projeto de forma robusta."""
-    current_path = Path(__file__).resolve()
-    while not (current_path / '.env').exists() and not (current_path / '.git').exists() and current_path.parent != current_path:
-        current_path = current_path.parent
-    return current_path
 
-def get_db_engine():
-    """Conecta ao PostgreSQL usando variáveis de ambiente."""
-    project_root = get_project_root()
-    load_dotenv(dotenv_path=project_root / '.env')
-    
-    db_user = os.getenv("DB_USER")
-    db_pass = os.getenv("DB_PASS")
-    db_host = os.getenv("DB_HOST")
-    db_port = os.getenv("DB_PORT")
-    db_name = os.getenv("DB_NAME")
+class DimTemaETL(DimensionETL):
+    """Implementação padronizada da dim_tema."""
 
-    if not all([db_user, db_pass, db_host, db_port, db_name]):
-        raise ValueError("As variáveis de ambiente do banco de dados não estão configuradas.")
-
-    db_uri = f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}'
-    try:
-        engine = create_engine(db_uri)
-        with engine.connect() as connection:
-            print(f"Conexão com o banco '{db_name}' estabelecida com sucesso.")
-        return engine
-    except Exception as e:
-        print(f"ERRO: Falha ao conectar com o banco de dados: {e}")
-        raise
-
-def extract_from_raw_tema(engine) -> pd.DataFrame:
+    QUERY_RAW_TEMA = """
+        SELECT
+            macrotema_id,
+            macrotema_nome,
+            tema_id,
+            tema_nome,
+            palavrachave_id,
+            palavrachave_nome,
+            uf
+        FROM public.raw_tema
     """
-    Extrai os dados necessários da tabela 'raw_tema' no schema public.
-    """
-    print("Lendo dados da tabela 'public.raw_tema'...")
-    query = """
-    SELECT
-        macrotema_id, macrotema_nome,
-        tema_id, tema_nome,
-        palavrachave_id, palavrachave_nome,
-        uf
-    FROM public.raw_tema
-    """
-    try:
-        df = pd.read_sql(query, engine)
-        print(f"Dados extraídos com sucesso: {len(df)} registros.")
+
+    def __init__(self, *, table_name: str = "dim_tema") -> None:
+        super().__init__(table_name=table_name, dimension_type="tema", name="DIM_TEMA")
+
+    def extract(self, context: ETLContext) -> pd.DataFrame:
+        self.logger.info("Carregando dados de raw_tema...")
+        db = self.get_db_manager()
+        df = db.execute_query(self.QUERY_RAW_TEMA)
+        self.logger.info("Dados extraídos: %s registros", f"{len(df):,}")
         return df
-    except Exception as e:
-        print(f"ERRO: Falha ao ler da tabela 'raw_tema'. Verifique se ela existe. Detalhes: {e}")
-        raise
 
-def create_dimension_from_raw(df_raw: pd.DataFrame) -> pd.DataFrame:
-    """
-    Cria a dimensão final a partir do DataFrame extraído da tabela raw_tema.
-    """
-    print("Processando dados para criar a dimensão tema...")
+    def transform(self, data: pd.DataFrame, context: ETLContext) -> pd.DataFrame:
+        self.logger.info("Transformando dados para dimensão tema...")
+        df = data.rename(columns={"palavrachave_nome": "palavra_chave"}).copy()
 
-    df_dim = df_raw.rename(columns={'palavrachave_nome': 'palavra_chave'})
+        if "uf" in df.columns:
+            df["sigla_uf"] = (
+                df["uf"]
+                .fillna("")
+                .astype(str)
+                .str.upper()
+                .map(UF_MAPPING)
+                .fillna("XX")
+            )
+        else:
+            df["sigla_uf"] = "XX"
 
-    # **CORREÇÃO APLICADA AQUI**
-    # Mapeia a coluna 'uf' (com nomes completos) para uma nova coluna 'sigla_uf'.
-    print("Mapeando nomes de UF para siglas...")
-    df_dim['sigla_uf'] = df_dim['uf'].str.upper().map(UF_MAPPING).fillna('XX')
+        df = df.drop_duplicates().reset_index(drop=True)
+        df.insert(0, "tema_sk", df.index + 1)
 
-    # Adiciona o registro SK=0 para valores desconhecidos
-    sk0_record = pd.DataFrame([{
-        'tema_sk': 0, 'macrotema_id': 0, 'macrotema_nome': 'Não informado',
-        'tema_id': 0, 'tema_nome': 'Não informado',
-        'palavrachave_id': 0, 'palavra_chave': 'Não informado',
-        'sigla_uf': 'XX'
-    }])
-    
-    df_dim = df_dim.drop_duplicates().reset_index(drop=True)
-    df_dim['tema_sk'] = df_dim.index + 1
-    
-    final_dim = pd.concat([sk0_record, df_dim], ignore_index=True)
-    
-    # Reordena as colunas para o formato final, usando 'sigla_uf'
-    final_cols = [
-        'tema_sk',
-        'macrotema_id', 'macrotema_nome',
-        'tema_id', 'tema_nome',
-        'palavrachave_id', 'palavra_chave',
-        'sigla_uf'  # Usando a coluna de sigla
-    ]
-    # Seleciona apenas as colunas finais, descartando a 'uf' original
-    final_dim = final_dim[final_cols]
-    
-    print(f"Dimensão final criada com {len(final_dim)} registros (incluindo SK=0).")
-    return final_dim
+        registro_zero = NamingConventions.get_standard_unknown_record("tema")
+        registro_zero.update({"sigla_uf": "XX"})
 
-def save_dimension(df: pd.DataFrame, engine, table_name='dim_tema'):
-    """Salva a dimensão final no schema public do PostgreSQL."""
-    print(f"Salvando dimensão na tabela 'public.{table_name}'...")
-    try:
-        df.to_sql(
-            table_name,
-            engine,
-            if_exists='replace',
-            index=False,
-            method='multi'
+        df_final = pd.concat(
+            [
+                pd.DataFrame([registro_zero]),
+                df[
+                    [
+                        "tema_sk",
+                        "macrotema_id",
+                        "macrotema_nome",
+                        "tema_id",
+                        "tema_nome",
+                        "palavrachave_id",
+                        "palavra_chave",
+                        "sigla_uf",
+                    ]
+                ],
+            ],
+            ignore_index=True,
         )
-        print("Dimensão salva com sucesso!")
-    except Exception as e:
-        print(f"ERRO: Falha ao salvar a dimensão: {e}")
-        raise
 
-def main():
-    parser = argparse.ArgumentParser(description="Gera a dim_tema a partir da tabela raw_tema.")
-    parser.add_argument('--table', default='dim_tema', help='Nome da tabela de destino no banco de dados.')
-    args = parser.parse_args()
+        if "nome" in df_final.columns:
+            df_final = df_final.drop(columns=["nome"])
 
-    print("INICIANDO GERAÇÃO DA DIMENSÃO TEMA")
-    print("=" * 50)
+        self.logger.info(
+            "Dimensão tema preparada: %s registros (inclui SK=0)",
+            f"{len(df_final):,}",
+        )
+        self._log_quick_stats(df_final)
+        return df_final
 
-    try:
-        engine = get_db_engine()
-        df_raw = extract_from_raw_tema(engine)
-        dim_tema = create_dimension_from_raw(df_raw)
+    def load(self, data: pd.DataFrame, context: ETLContext) -> None:
+        """Sobrescreve carga padrão garantindo PK explícita."""
+        if data.empty:
+            self.logger.warning("DataFrame vazio recebido; carga ignorada.")
+            return
 
-        print("\nPreview da dimensão gerada:")
-        print(dim_tema.head(10))
-        
-        print("\nEstatísticas da dimensão:")
-        print(f"  - Total de registros: {len(dim_tema)}")
-        print(f"  - Macrotemas únicos: {dim_tema[dim_tema['tema_sk'] != 0]['macrotema_id'].nunique()}")
-        print(f"  - Temas únicos: {dim_tema[dim_tema['tema_sk'] != 0]['tema_id'].nunique()}")
-        print(f"  - Palavras-chave únicas: {dim_tema[dim_tema['tema_sk'] != 0]['palavrachave_id'].nunique()}")
-        print(f"  - UFs únicas: {dim_tema[dim_tema['tema_sk'] != 0]['sigla_uf'].nunique()}")
+        db = self.get_db_manager()
+        ddl = """
+        CREATE TABLE {table} (
+            tema_sk INTEGER PRIMARY KEY,
+            macrotema_id INTEGER,
+            macrotema_nome VARCHAR(255),
+            tema_id INTEGER,
+            tema_nome VARCHAR(255),
+            palavrachave_id INTEGER,
+            palavra_chave VARCHAR(255),
+            sigla_uf VARCHAR(2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """.format(table=self.table_name)
 
-        save_dimension(dim_tema, engine, table_name=args.table)
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql(f"DROP TABLE IF EXISTS {self.table_name} CASCADE;")
+            conn.exec_driver_sql(ddl)
+            data.to_sql(self.table_name, conn, if_exists="append", index=False, method="multi")
 
-    except Exception as e:
-        print(f"\nO processo falhou. Motivo: {e}")
-    
-    print("\nProcesso concluído.")
+        self.logger.info("Dimensão tema persistida com PK em %s.", self.table_name)
+
+    def _log_quick_stats(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+        registros_sem_zero = df[df["tema_sk"] != 0]
+        self.logger.info(
+            "Estatísticas: macrotemas=%s | temas=%s | palavras-chave=%s | UFs=%s",
+            registros_sem_zero["macrotema_id"].nunique(),
+            registros_sem_zero["tema_id"].nunique(),
+            registros_sem_zero["palavrachave_id"].nunique(),
+            registros_sem_zero["sigla_uf"].nunique(),
+        )
+
 
 if __name__ == "__main__":
-    main()
+    DimTemaETL.cli()
