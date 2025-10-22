@@ -262,12 +262,12 @@ def create_ies_dimension(df_raw: pd.DataFrame) -> pd.DataFrame:
         'ies_sk': 0,
         'cod_entidade_capes': 0,
         'sg_ies': 'XX',
-        'des_ies': 'Não informado',
-        'des_regiao': 'Não informado',
+        'des_ies': 'NÃO INFORMADO',
+        'des_regiao': 'NÃO INFORMADO',
         'sg_uf': 'XX',
-        'des_municipio_programa': 'Não informado',
-        'des_status_juridico': 'Não informado',
-        'des_dependencia_adm': 'Não informado'
+        'des_municipio_programa': 'NÃO INFORMADO',
+        'des_status_juridico': 'NÃO INFORMADO',
+        'des_dependencia_adm': 'NÃO INFORMADO'
     }])
     
     # 8. Gerar a chave substituta (Surrogate Key)

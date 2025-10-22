@@ -296,17 +296,17 @@ def criar_dimensao_localidade():
     registro_nao_informado = NamingConventions.get_standard_unknown_record('localidade')
     registro_nao_informado.update({
         'uf': 'XX',
-        'nome_uf': 'Não informado',
+        'nome_uf': 'NÃO INFORMADO',
         'sigla_uf': 'XX',
-        'regiao': 'Não informado',
+        'regiao': 'NÃO INFORMADO',
         'sigla_regiao': 'XX',
         'latitude': None,
         'longitude': None,
-        'nivel': 'Não informado',
+        'nivel': 'NÃO INFORMADO',
         'municipio': None,
         'codigo_ibge': None,
         'capital': 0,
-        'nome': 'Não informado'
+        'nome': 'NÃO INFORMADO'
     })
     df_localidade = pd.concat([pd.DataFrame([{
         'sigla_uf': registro_nao_informado['uf'],

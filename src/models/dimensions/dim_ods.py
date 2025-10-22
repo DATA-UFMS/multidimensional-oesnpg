@@ -232,15 +232,15 @@ def create_sk0_record():
     """
     registro_sk0 = {
         'ods_numero': 0,
-        'ods_nome': 'Não informado',
-        'ods_descricao': 'Registro para valores desconhecidos ou não aplicáveis',
-        'ods_codigo': 'ODS-00',
-        'ods_status': 'Não informado',
-        'ods_categoria': 'Não informado',
-        'ods_tipo': 'Não informado',
-        'ods_macrocategoria': 'Não informado',
-        'ods_associados': 'Não informado',
-        'ods_foco_principal': 'Não informado'
+    'ods_nome': 'NÃO INFORMADO',
+    'ods_descricao': 'Registro para valores desconhecidos ou não aplicáveis',
+    'ods_codigo': 'ODS-00',
+    'ods_status': 'NÃO INFORMADO',
+    'ods_categoria': 'NÃO INFORMADO',
+    'ods_tipo': 'NÃO INFORMADO',
+    'ods_macrocategoria': 'NÃO INFORMADO',
+    'ods_associados': 'NÃO INFORMADO',
+    'ods_foco_principal': 'NÃO INFORMADO'
     }
 
     return pd.DataFrame([registro_sk0])

@@ -56,30 +56,30 @@ class NamingConventions:
 
     # Padrões de registros desconhecidos
     UNKNOWN_RECORD_TEMPLATES: Dict[str, Dict[str, object]] = {
-        "default": {"nome": "Não informado"},
+        "default": {"nome": "NÃO INFORMADO"},
         "localidade": {
             "uf": "XX",
             "sigla_regiao": "XX",
-            "regiao": "Não informado",
+            "regiao": "NÃO INFORMADO",
             "municipio": None,
-            "nome": "Não informado",
+            "nome": "NÃO INFORMADO",
             "latitude": None,
             "longitude": None,
             "codigo_ibge": None,
             "capital": 0,
-            "nivel": "Não informado",
+            "nivel": "NÃO INFORMADO",
         },
         "tema": {
             "tema_id": 0,
-            "tema_nome": "Não informado",
+            "tema_nome": "NÃO INFORMADO",
             "macrotema_id": 0,
-            "macrotema_nome": "Não informado",
+            "macrotema_nome": "NÃO INFORMADO",
             "palavrachave_id": 0,
-            "palavra_chave": "Não informado",
+            "palavra_chave": "NÃO INFORMADO",
         },
         "producao": {
             "id_producao": 0,
-            "titulo_producao": "Não informado",
+            "titulo_producao": "NÃO INFORMADO",
             "tipo_producao": "Desconhecido",
             "ano_producao": 0,
         },
@@ -116,7 +116,7 @@ class NamingConventions:
 
         sk_name = cls.get_dimension_sk_name(dimension_type)
         template.setdefault(sk_name, 0)
-        template.setdefault("nome", "Não informado")
+        template.setdefault("nome", "NÃO INFORMADO")
         return template
 
 

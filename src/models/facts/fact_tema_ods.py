@@ -113,7 +113,7 @@ def _normalizar_numero_ods(valor):
 
 
 def _formatar_rotulo_macrocategoria(info):
-    nome = info.get("nome", "Não informado")
+    nome = info.get("nome", "NÃO INFORMADO")
     if info.get("tipo") == "transversal":
         return f"{nome} (Transversal)"
     return nome

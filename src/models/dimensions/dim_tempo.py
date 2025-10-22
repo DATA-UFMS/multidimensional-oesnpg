@@ -79,7 +79,7 @@ def criar_dimensao_tempo(data_inicio='2013-01-01', data_fim='2027-12-31'):
         'trimestre': None,
         'mes': None,
         'dia': None,
-        'dia_semana': 'Não informado',
+    'dia_semana': 'NÃO INFORMADO',
         'fim_de_semana': 'N'
     }
     df_tempo = pd.concat([pd.DataFrame([nao_informado]), df], ignore_index=True)

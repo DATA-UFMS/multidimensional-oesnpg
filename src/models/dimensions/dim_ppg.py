@@ -113,9 +113,9 @@ def processar_dataframe_ppg(df):
         
         for col in colunas_texto:
             if col in df_processed.columns:
-                df_processed[col] = df_processed[col].fillna('Não informado')
+                df_processed[col] = df_processed[col].fillna('NÃO INFORMADO')
                 df_processed[col] = df_processed[col].astype(str).str.strip()
-                df_processed[col] = df_processed[col].replace(['', 'nan', 'None'], 'Não informado')
+                df_processed[col] = df_processed[col].replace(['', 'nan', 'None'], 'NÃO INFORMADO')
         
         # 3. Tratar campos numéricos
         colunas_numericas = [
@@ -201,9 +201,9 @@ def criar_dimensao_ppg():
             regiao, area_conhecimento, grande_area, area_avaliacao,
             total_cursos, quantidade_docentes, quantidade_discentes, ano_base
         ) VALUES (
-            0, '0', 'Não informado', 0.0, 'Não informado',
-            'Não informado', 'Não informado', 'Não informado', 0, 'XX',
-            'Não informado', 'Não informado', 'Não informado', 'Não informado',
+            0, '0', 'NÃO INFORMADO', 0.0, 'NÃO INFORMADO',
+            'NÃO INFORMADO', 'NÃO INFORMADO', 'NÃO INFORMADO', 0, 'XX',
+            'NÃO INFORMADO', 'NÃO INFORMADO', 'NÃO INFORMADO', 'NÃO INFORMADO',
             0, 0, 0, 0
         );
         
@@ -266,10 +266,10 @@ def criar_dimensao_ppg():
                 elif col_destino == 'programa_em_rede':
                     df_final[col_destino] = 'Não'
                 else:
-                    df_final[col_destino] = 'Não informado'
+                    df_final[col_destino] = 'NÃO INFORMADO'
 
         if 'nome_programa' in df_final.columns:
-            df_final['nome_programa'] = df_final['nome_programa'].fillna('Não informado').astype(str).str.upper()
+            df_final['nome_programa'] = df_final['nome_programa'].fillna('NÃO INFORMADO').astype(str).str.upper()
         
         # 6. Inserir dados processados no banco
         logger.info("💾 Inserindo dados processados no banco...")
