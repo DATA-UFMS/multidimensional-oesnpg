@@ -85,7 +85,7 @@ def carregar_dados_producao():
         DataFrame com dados de produção e autoria
     """
     try:
-        logger.info("📚 Carregando dados de produção intelectual...")
+        logger.info("Iniciando carga de dados de produção intelectual...")
         
         # Tentar carregar dados locais primeiro
         local_path = os.path.join(project_root, 'data', 'raw_producao', 'add_producao_autor_2023.parquet')
@@ -93,7 +93,7 @@ def carregar_dados_producao():
         if os.path.exists(local_path):
             logger.info(f"Carregando dados locais de {local_path}")
             df = pd.read_parquet(local_path)
-            logger.info(f"✅ Dados locais carregados: {len(df):,} registros")
+            logger.info(f"Dados locais carregados: {len(df):,} registros")
             return df
         
         # Se não encontrar local, tentar MinIO
@@ -106,7 +106,7 @@ def carregar_dados_producao():
         secret_key = os.getenv("MINIO_SECRET_KEY")
         
         if not access_key or not secret_key:
-            raise ValueError("❌ Credenciais do MinIO não configuradas (MINIO_ACCESS_KEY, MINIO_SECRET_KEY)")
+            raise ValueError("Credenciais do MinIO não configuradas (MINIO_ACCESS_KEY, MINIO_SECRET_KEY)")
         
         storage_options = {
             'key': access_key,
@@ -118,11 +118,11 @@ def carregar_dados_producao():
         logger.info(f"Tentando carregar de: {path}")
         
         df = pd.read_parquet(path, storage_options=storage_options)
-        logger.info(f"✅ Dados carregados do MinIO: {len(df):,} registros")
+        logger.info(f"Dados carregados do MinIO: {len(df):,} registros")
         return df
         
     except Exception as e:
-        logger.error(f"❌ Falha ao carregar dados: {e}")
+        logger.error(f"Falha ao carregar dados: {e}")
         raise
 
 
@@ -136,7 +136,7 @@ def carregar_dimensoes(db):
     Returns:
         dict: Dicionários de mapeamento para cada dimensão
     """
-    logger.info("📊 Carregando mapeamentos das dimensões...")
+    logger.info("Carregando mapeamentos das dimensões...")
     
     mapeamentos = {}
     
@@ -144,33 +144,33 @@ def carregar_dimensoes(db):
     logger.info("  Carregando dim_docente...")
     docentes = db.execute_query("SELECT CAST(id_pessoa AS VARCHAR) as id_pessoa, docente_sk FROM dim_docente WHERE docente_sk > 0")
     mapeamentos['docente'] = dict(zip(docentes['id_pessoa'].astype(str), docentes['docente_sk']))
-    logger.info(f"    ✅ {len(mapeamentos['docente']):,} docentes mapeados")
+    logger.info(f"    Docentes mapeados: {len(mapeamentos['docente']):,}")
     
     # dim_discente: id_pessoa -> discente_sk
     logger.info("  Carregando dim_discente...")
     discentes = db.execute_query("SELECT CAST(id_pessoa AS VARCHAR) as id_pessoa, discente_sk FROM dim_discente WHERE discente_sk > 0")
     mapeamentos['discente'] = dict(zip(discentes['id_pessoa'].astype(str), discentes['discente_sk']))
-    logger.info(f"    ✅ {len(mapeamentos['discente']):,} discentes mapeados")
+    logger.info(f"    Discentes mapeados: {len(mapeamentos['discente']):,}")
     
     # dim_titulado: id_pessoa -> titulado_sk
     logger.info("  Carregando dim_titulado...")
     titulados = db.execute_query("SELECT CAST(id_pessoa AS VARCHAR) as id_pessoa, titulado_sk FROM dim_titulado WHERE titulado_sk > 0")
     mapeamentos['titulado'] = dict(zip(titulados['id_pessoa'].astype(str), titulados['titulado_sk']))
-    logger.info(f"    ✅ {len(mapeamentos['titulado']):,} titulados mapeados")
+    logger.info(f"    Titulados mapeados: {len(mapeamentos['titulado']):,}")
     
     # dim_posdoc: id_pessoa -> posdoc_sk
     logger.info("  Carregando dim_posdoc...")
     posdocs = db.execute_query("SELECT CAST(id_pessoa AS VARCHAR) as id_pessoa, posdoc_sk FROM dim_posdoc WHERE posdoc_sk > 0")
     mapeamentos['posdoc'] = dict(zip(posdocs['id_pessoa'].astype(str), posdocs['posdoc_sk']))
-    logger.info(f"    ✅ {len(mapeamentos['posdoc']):,} pós-docs mapeados")
+    logger.info(f"    Pós-docs mapeados: {len(mapeamentos['posdoc']):,}")
     
     # dim_tempo: ano -> tempo_sk
     logger.info("  Carregando dim_tempo...")
     tempos = db.execute_query("SELECT ano, tempo_sk FROM dim_tempo WHERE tempo_sk > 0")
     mapeamentos['tempo'] = dict(zip(tempos['ano'].astype(int), tempos['tempo_sk']))
-    logger.info(f"    ✅ {len(mapeamentos['tempo']):,} anos mapeados")
+    logger.info(f"    Anos mapeados: {len(mapeamentos['tempo']):,}")
     
-    logger.info("✅ Todos os mapeamentos carregados com sucesso")
+    logger.info("Todos os mapeamentos carregados com sucesso")
     return mapeamentos
 
 
@@ -185,7 +185,7 @@ def transformar_dados_producao(df, mapeamentos):
     Returns:
         DataFrame transformado para inserção na tabela fato
     """
-    logger.info("🔄 Transformando dados para tabela fato de produção...")
+    logger.info("Transformando dados para tabela fato de produção...")
     logger.info(f"Total de registros a transformar: {len(df):,}")
     
     # Selecionar colunas relevantes
@@ -261,14 +261,14 @@ def transformar_dados_producao(df, mapeamentos):
     df_fato = df_fato[colunas_finais]
     
     # Estatísticas de mapeamento
-    logger.info("\n📊 Estatísticas de mapeamento:")
+    logger.info("Estatísticas de mapeamento:")
     logger.info(f"  Autores docentes mapeados: {(df_fato['docente_sk'] > 0).sum():,}")
     logger.info(f"  Autores discentes mapeados: {(df_fato['discente_sk'] > 0).sum():,}")
     logger.info(f"  Autores titulados mapeados: {(df_fato['titulado_sk'] > 0).sum():,}")
     logger.info(f"  Autores pós-docs mapeados: {(df_fato['posdoc_sk'] > 0).sum():,}")
     logger.info(f"  Produções com ao menos um autor mapeado: {((df_fato['docente_sk'] > 0) | (df_fato['discente_sk'] > 0) | (df_fato['titulado_sk'] > 0) | (df_fato['posdoc_sk'] > 0)).sum():,}")
     
-    logger.info(f"✅ Tabela fato transformada: {len(df_fato):,} registros")
+    logger.info(f"Tabela fato transformada: {len(df_fato):,} registros")
     return df_fato
 
 
@@ -280,7 +280,7 @@ def criar_tabela(db):
     Args:
         db: Gerenciador de banco de dados
     """
-    logger.info("🗄️ Criando tabela fact_producao...")
+    logger.info("Criando tabela fact_producao...")
     
     # Verificar quais dimensões existem
     check_dims_sql = """
@@ -294,16 +294,41 @@ def criar_tabela(db):
     """
     
     result = db.execute_query(check_dims_sql)
-    dims = result[0] if result else (False,) * 6
-    tem_tempo, tem_docente, tem_discente, tem_titulado, tem_posdoc, tem_localidade = dims
+
+    if result.empty:
+        dims_flags = {
+            "tem_tempo": False,
+            "tem_docente": False,
+            "tem_discente": False,
+            "tem_titulado": False,
+            "tem_posdoc": False,
+            "tem_localidade": False,
+        }
+    else:
+        first_row = result.iloc[0]
+        dims_flags = {
+            "tem_tempo": bool(first_row.get("tem_tempo", False)),
+            "tem_docente": bool(first_row.get("tem_docente", False)),
+            "tem_discente": bool(first_row.get("tem_discente", False)),
+            "tem_titulado": bool(first_row.get("tem_titulado", False)),
+            "tem_posdoc": bool(first_row.get("tem_posdoc", False)),
+            "tem_localidade": bool(first_row.get("tem_localidade", False)),
+        }
+
+    tem_tempo = dims_flags["tem_tempo"]
+    tem_docente = dims_flags["tem_docente"]
+    tem_discente = dims_flags["tem_discente"]
+    tem_titulado = dims_flags["tem_titulado"]
+    tem_posdoc = dims_flags["tem_posdoc"]
+    tem_localidade = dims_flags["tem_localidade"]
     
-    logger.info(f"📊 Dimensões disponíveis:")
-    logger.info(f"   dim_tempo: {'✅' if tem_tempo else '❌'}")
-    logger.info(f"   dim_docente: {'✅' if tem_docente else '❌'}")
-    logger.info(f"   dim_discente: {'✅' if tem_discente else '❌'}")
-    logger.info(f"   dim_titulado: {'✅' if tem_titulado else '❌'}")
-    logger.info(f"   dim_posdoc: {'✅' if tem_posdoc else '❌'}")
-    logger.info(f"   dim_localidade: {'✅' if tem_localidade else '❌'}")
+    logger.info("Dimensões disponíveis:")
+    logger.info(f"   dim_tempo: {'OK' if tem_tempo else 'ausente'}")
+    logger.info(f"   dim_docente: {'OK' if tem_docente else 'ausente'}")
+    logger.info(f"   dim_discente: {'OK' if tem_discente else 'ausente'}")
+    logger.info(f"   dim_titulado: {'OK' if tem_titulado else 'ausente'}")
+    logger.info(f"   dim_posdoc: {'OK' if tem_posdoc else 'ausente'}")
+    logger.info(f"   dim_localidade: {'OK' if tem_localidade else 'ausente'}")
     
     # Construir constraints de FK dinamicamente
     fk_constraints = []
@@ -323,14 +348,14 @@ def criar_tabela(db):
     fk_clause = ""
     if fk_constraints:
         fk_clause = ",\n        " + ",\n        ".join(fk_constraints)
-        logger.info(f"✅ Adicionando {len(fk_constraints)} foreign key(s)")
+        logger.info(f"Adicionando {len(fk_constraints)} foreign key(s)")
     else:
-        logger.warning("⚠️  Nenhuma FK será adicionada (dimensões não encontradas)")
+        logger.warning("Nenhuma FK será adicionada (dimensões não encontradas)")
     
     # Dropar tabela se existir
     drop_sql = "DROP TABLE IF EXISTS fact_producao CASCADE;"
     db.execute_sql(drop_sql)
-    logger.info("🗑️ Tabela fact_producao removida se existia")
+    logger.info("Tabela fact_producao removida se existia")
     
     # Criar tabela com FKs dinâmicas
     create_sql = f"""
@@ -351,7 +376,7 @@ def criar_tabela(db):
     """
     
     db.execute_sql(create_sql)
-    logger.info("✅ Tabela fact_producao criada com sucesso")
+    logger.info("Tabela fact_producao criada com sucesso")
     
     # Adicionar comentários
     comment_sql = """
@@ -370,7 +395,7 @@ def criar_tabela(db):
     COMMENT ON COLUMN fact_producao.qtd_producao IS 'Quantidade (sempre 1 para agregação)';
     """
     db.execute_sql(comment_sql)
-    logger.info("✅ Comentários adicionados à tabela")
+    logger.info("Comentários adicionados à tabela")
 
 
 def inserir_dados_producao(df, db, chunk_size=500):
@@ -382,36 +407,37 @@ def inserir_dados_producao(df, db, chunk_size=500):
         db: Gerenciador de banco de dados
         chunk_size: Tamanho dos chunks para inserção
     """
-    logger.info(f"💾 Iniciando inserção de {len(df):,} registros de produção...")
+    logger.info(f"Iniciando inserção de {len(df):,} registros de produção...")
     
     total_chunks = (len(df) + chunk_size - 1) // chunk_size
-    logger.info(f"📦 Dados serão inseridos em {total_chunks:,} chunks de {chunk_size} registros")
+    logger.info(f"Dados serão inseridos em {total_chunks:,} chunks de {chunk_size} registros")
     
     registros_inseridos = 0
     
     for i in range(0, len(df), chunk_size):
         chunk_num = (i // chunk_size) + 1
         chunk = df.iloc[i:i + chunk_size]
-        
-        logger.info(f"📦 Inserindo chunk {chunk_num}/{total_chunks} - Registros {i} a {min(i+chunk_size-1, len(df)-1)} ({len(chunk)} registros)")
-        
+        logger.info(
+            f"Inserindo chunk {chunk_num}/{total_chunks} - Registros {i} a {min(i+chunk_size-1, len(df)-1)} ({len(chunk)} registros)"
+        )
+
         start_time = datetime.now()
-        
+
         try:
             inserir_chunk_direto(chunk, db)
             registros_inseridos += len(chunk)
-            
+
             elapsed = (datetime.now() - start_time).total_seconds()
-            logger.info(f"✅ Chunk {chunk_num} inserido com sucesso em {elapsed:.2f}s")
-            
+            logger.info(f"Chunk {chunk_num} inserido com sucesso em {elapsed:.2f}s")
+
         except Exception as e:
-            logger.error(f"❌ Erro ao inserir chunk {chunk_num}: {e}")
+            logger.error(f"Erro ao inserir chunk {chunk_num}: {e}")
             raise
     
     # Verificar total inserido
     total_db = db.execute_query("SELECT COUNT(*) as total FROM fact_producao")['total'].iloc[0]
-    logger.info(f"✅ Inserção concluída! Total de registros inseridos: {total_db:,}")
-    logger.info(f"📊 Esperado: {len(df):,}, Inserido: {total_db:,}")
+    logger.info(f"Inserção concluída. Total de registros inseridos: {total_db:,}")
+    logger.info(f"Esperado: {len(df):,}, Inserido: {total_db:,}")
 
 
 def inserir_chunk_direto(chunk, db):
@@ -431,43 +457,43 @@ def inserir_chunk_direto(chunk, db):
         chunksize=100
     )
     
-    logger.info("✅ Chunk inserido com sucesso usando to_sql")
+    logger.info("Chunk inserido com sucesso usando to_sql")
 
 
 def main():
     """Função principal que executa todo o processo ETL."""
     try:
-        logger.info("📚 INICIANDO CRIAÇÃO DA FACT_PRODUCAO")
+        logger.info("Iniciando criação da FACT_PRODUCAO")
         logger.info("=" * 70)
         
         # 1. Conectar ao banco
-        logger.info("1️⃣ Conectando ao banco de dados...")
+        logger.info("1. Conectando ao banco de dados...")
         db = get_db_manager()
         
         # 2. Carregar dados de produção
-        logger.info("2️⃣ Carregando dados de produção...")
+        logger.info("2. Carregando dados de produção...")
         df_producao = carregar_dados_producao()
         
         # 3. Carregar mapeamentos das dimensões
-        logger.info("3️⃣ Carregando mapeamentos das dimensões...")
+        logger.info("3. Carregando mapeamentos das dimensões...")
         mapeamentos = carregar_dimensoes(db)
         
         # 4. Transformar dados
-        logger.info("4️⃣ Transformando dados...")
+        logger.info("4. Transformando dados...")
         df_fato = transformar_dados_producao(df_producao, mapeamentos)
         
         # 5. Criar tabela
-        logger.info("5️⃣ Criando tabela no banco...")
+        logger.info("5. Criando tabela no banco...")
         criar_tabela(db)
         
         # 6. Inserir dados
-        logger.info("6️⃣ Inserindo dados...")
+        logger.info("6. Inserindo dados...")
         inserir_dados_producao(df_fato, db)
         
-        logger.info("🎉 FACT_PRODUCAO CRIADA COM SUCESSO!")
+        logger.info("FACT_PRODUCAO criada com sucesso!")
         
     except Exception as e:
-        logger.error(f"💥 Erro no processo: {e}")
+        logger.error(f"Erro no processo: {e}")
         raise
 
 

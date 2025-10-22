@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🎓 DIMENSÃO TITULADO - Data Warehouse Observatório CAPES
+Dimensão Titulado - Data Warehouse Observatório CAPES
 =======================================================
 Cria a dimensão dim_titulado baseada nos discentes que JÁ CONCLUÍRAM
 mestrado ou doutorado (subconjunto filtrado da dim_discente)
@@ -56,8 +56,8 @@ def carregar_dados_discentes_titulados(db):
     Returns:
         DataFrame com todos os discentes da dim_discente
     """
-    logger.info("🎓 Carregando dados de discentes da tabela dim_discente...")
-    
+    logger.info("Carregando dados de discentes da tabela dim_discente...")
+
     try:
         # Carregar dados da dim_discente (excluindo SK=0)
         query = """
@@ -91,12 +91,12 @@ def carregar_dados_discentes_titulados(db):
         """
         
         df = db.execute_query(query)
-        logger.info(f"✅ Dados carregados da dim_discente: {len(df):,} registros")
-        
+        logger.info(f"Dados carregados da dim_discente: {len(df):,} registros")
+
         return df
-        
+
     except Exception as e:
-        logger.error(f"❌ Falha ao carregar dados da dim_discente: {e}")
+        logger.error(f"Falha ao carregar dados da dim_discente: {e}")
         raise
 
 def filtrar_titulados(df):
@@ -110,7 +110,7 @@ def filtrar_titulados(df):
     Returns:
         DataFrame filtrado com apenas titulados
     """
-    logger.info("🔍 Aplicando filtros para identificar titulados...")
+    logger.info("Aplicando filtros para identificar titulados...")
     logger.info(f"Total de registros antes dos filtros: {len(df):,}")
     
     # FILTRO 1: Graus acadêmicos relevantes (usar nome da coluna da dim_discente)
@@ -151,9 +151,9 @@ def filtrar_titulados(df):
     # Remover colunas auxiliares
     df_titulados = df_titulados.drop(columns=['grau_academico_upper', 'situacao_str'], errors='ignore')
     
-    logger.info(f"🎯 Titulados identificados: {len(df_titulados):,} registros")
+    logger.info(f"Titulados identificados: {len(df_titulados):,} registros")
     if len(df_grau) > 0:
-        logger.info(f"📈 Taxa de titulação: {(len(df_titulados)/len(df_grau))*100:.1f}%")
+        logger.info(f"Taxa de titulação: {(len(df_titulados)/len(df_grau))*100:.1f}%")
     
     return df_titulados
 
@@ -168,7 +168,7 @@ def transformar_dados_titulado(df):
     Returns:
         DataFrame com estrutura da dim_titulado
     """
-    logger.info("🔄 Transformando dados para dimensão de titulados...")
+    logger.info("Transformando dados para dimensão de titulados...")
     logger.info(f"Total de registros a transformar: {len(df):,}")
     
     # Mapeamento direto das colunas da dim_discente para dim_titulado
@@ -319,7 +319,7 @@ def transformar_dados_titulado(df):
     colunas_existentes = [col for col in colunas_ordenadas if col in df_dim_final.columns]
     df_dim_final = df_dim_final[colunas_existentes]
     
-    logger.info(f"✅ Dimensão de titulados criada: {len(df_dim_final):,} registros (incluindo SK=0)")
+    logger.info(f"Dimensão de titulados criada: {len(df_dim_final):,} registros (incluindo SK=0)")
     
     return df_dim_final
 
@@ -365,7 +365,7 @@ def criar_tabela(db):
     """
     
     db.execute_sql(create_sql)
-    logger.info("✅ Tabela dim_titulado criada com sucesso")
+    logger.info("Tabela dim_titulado criada com sucesso")
     
     # Adiciona comentários
     comment_sql = """
@@ -373,7 +373,7 @@ def criar_tabela(db):
     """
     
     db.execute_sql(comment_sql)
-    logger.info("✅ Comentários adicionados à tabela")
+    logger.info("Comentários adicionados à tabela")
 
 def inserir_dados_titulado(df_dim_titulado, db):
     """
@@ -386,54 +386,59 @@ def inserir_dados_titulado(df_dim_titulado, db):
     logger = get_logger()
     
     try:
-        logger.info(f"� Iniciando inserção de {len(df_dim_titulado):,} registros de titulados...")
-        
+        logger.info(f"Iniciando inserção de {len(df_dim_titulado):,} registros de titulados...")
+
         # Configuração de chunks otimizados para evitar overflow de parâmetros SQL
         chunk_size = 500  # Tamanho reduzido para evitar overflow (PostgreSQL limite: 32.767 parâmetros)
         total_chunks = (len(df_dim_titulado) + chunk_size - 1) // chunk_size
-        
-        logger.info(f"📦 Dados serão inseridos em {total_chunks} chunks de {chunk_size} registros")
-        
+
+        logger.info(f"Dados serão inseridos em {total_chunks} chunks de {chunk_size} registros")
+
         for chunk_num in range(total_chunks):
             start_idx = chunk_num * chunk_size
             end_idx = min((chunk_num + 1) * chunk_size, len(df_dim_titulado))
-            
+
             chunk_df = df_dim_titulado.iloc[start_idx:end_idx].copy()
-            
-            logger.info(f"� Inserindo chunk {chunk_num + 1}/{total_chunks} - Registros {start_idx} a {end_idx-1} ({len(chunk_df)} registros)")
-            
+
+            logger.info(
+                "Inserindo chunk %s/%s - Registros %s a %s (%s registros)",
+                chunk_num + 1,
+                total_chunks,
+                start_idx,
+                end_idx - 1,
+                len(chunk_df),
+            )
+
             try:
-                # Tentativa de inserção do chunk
                 start_time = time.time()
-                
-                # Usar método mais simples e direto para inserção
                 resultado = inserir_chunk_direto(chunk_df, db)
-                
-                end_time = time.time()
-                duration = end_time - start_time
-                
+                duration = time.time() - start_time
+
                 if resultado:
-                    logger.info(f"✅ Chunk {chunk_num + 1} inserido com sucesso em {duration:.2f}s")
+                    logger.info("Chunk %s inserido com sucesso em %.2fs", chunk_num + 1, duration)
                 else:
-                    logger.error(f"❌ Falha ao inserir chunk {chunk_num + 1}")
+                    logger.error("Falha ao inserir chunk %s", chunk_num + 1)
                     raise Exception(f"Falha na inserção do chunk {chunk_num + 1}")
-                    
+
             except Exception as e:
-                logger.error(f"❌ Erro no chunk {chunk_num + 1}: {str(e)}")
+                logger.error("Erro no chunk %s: %s", chunk_num + 1, str(e))
                 raise Exception(f"Falha na inserção do chunk {chunk_num + 1}")
-        
-        # Verificação final
+
         count_query = "SELECT COUNT(*) as total FROM dim_titulado WHERE titulado_sk > 0"
         resultado_count = db.execute_query(count_query)
         total_inserido = resultado_count.iloc[0]['total'] if not resultado_count.empty else 0
-        
-        logger.info(f"✅ Inserção concluída! Total de registros inseridos: {total_inserido}")
-        logger.info(f"📊 Esperado: {len(df_dim_titulado)}, Inserido: {total_inserido}")
-        
+
+        logger.info("Inserção concluída. Total de registros inseridos: %s", total_inserido)
+        logger.info(
+            "Resumo de carregamento - esperado: %s, inserido: %s",
+            len(df_dim_titulado),
+            total_inserido,
+        )
+
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Erro ao inserir dados: {str(e)}")
+        logger.error("Erro ao inserir dados: %s", str(e))
         raise
 
 
@@ -444,27 +449,26 @@ def inserir_chunk_direto(chunk_df, db):
     logger = get_logger()
     
     try:
-        # Usar to_sql diretamente que é mais eficiente
         chunk_df.to_sql(
             name='dim_titulado',
             con=db.engine,
             if_exists='append',
             index=False,
             method='multi',
-            chunksize=100  # Inserir em chunks de 100 registros
+            chunksize=100,
         )
-        logger.info(f"✅ Chunk inserido com sucesso usando to_sql")
+        logger.info("Chunk inserido com sucesso usando to_sql")
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Erro na inserção direta: {str(e)}")
+        logger.error("Erro na inserção direta: %s", str(e))
         return False
 
 def main():
     """
     Função principal para criação da dimensão de titulados.
     """
-    logger.info("🎓 INICIANDO CRIAÇÃO DA DIM_TITULADO")
+    logger.info("Iniciando criação da dim_titulado")
     logger.info("=" * 50)
     
     try:

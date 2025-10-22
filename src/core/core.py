@@ -10,7 +10,7 @@ import logging
 import time
 import requests
 from datetime import datetime
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Literal
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
@@ -49,9 +49,9 @@ class Config:
     }
     
     # Processamento
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE"))
-    MAX_RETRIES = int(os.getenv("MAX_RETRIES"))
-    USE_CSV = os.getenv("USE_CSV").lower() == "true"
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1000"))
+    MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+    USE_CSV = os.getenv("USE_CSV", "false").lower() == "true"
 
 # =================================================================
 # SCHEMA DO DATA WAREHOUSE
@@ -105,15 +105,15 @@ def log_execution(func):
     """Decorator para logging de execução"""
     def wrapper(*args, **kwargs):
         start_time = time.time()
-        logger.info(f"🚀 Iniciando: {func.__name__}")
+        logger.info(f"Iniciando: {func.__name__}")
         try:
             result = func(*args, **kwargs)
             elapsed = time.time() - start_time
-            logger.info(f"✅ {func.__name__} concluída em {elapsed:.2f}s")
+            logger.info(f"{func.__name__} concluída em {elapsed:.2f}s")
             return result
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"❌ {func.__name__} falhou após {elapsed:.2f}s: {e}")
+            logger.error(f"{func.__name__} falhou após {elapsed:.2f}s: {e}")
             raise
     return wrapper
 
@@ -153,7 +153,7 @@ class DatabaseManager:
             return False
     
     @log_execution
-    def execute_query(self, query: str, params: Dict = None) -> pd.DataFrame:
+    def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
         """Executa query e retorna DataFrame"""
         try:
             with self.engine.connect() as conn:
@@ -163,7 +163,7 @@ class DatabaseManager:
             raise
     
     @log_execution
-    def execute_sql(self, sql: str, params: Dict = None) -> bool:
+    def execute_sql(self, sql: str, params: Optional[Dict] = None) -> bool:
         """Executa comando SQL"""
         try:
             with self.engine.begin() as conn:
@@ -174,7 +174,12 @@ class DatabaseManager:
             return False
     
     @log_execution
-    def save_dataframe(self, df: pd.DataFrame, table_name: str, if_exists: str = 'replace') -> bool:
+    def save_dataframe(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        if_exists: Literal['fail', 'replace', 'append'] = 'replace',
+    ) -> bool:
         """Salva DataFrame no banco"""
         if df.empty:
             logger.warning(f"DataFrame vazio para tabela {table_name}")
@@ -184,7 +189,7 @@ class DatabaseManager:
             with self.engine.begin() as conn:
                 df.to_sql(table_name, conn, if_exists=if_exists, index=False, method='multi')
             
-            logger.info(f"✅ {len(df)} registros salvos em {table_name}")
+            logger.info(f"{len(df)} registros salvos em {table_name}")
             return True
             
         except Exception as e:
@@ -235,6 +240,7 @@ class CapesAPI:
                 if attempt == self.config.MAX_RETRIES - 1:
                     raise
                 time.sleep(2 ** attempt)  # Backoff exponencial
+        return {}
     
     @log_execution
     def fetch_all_data(self, resource_id: str) -> pd.DataFrame:
@@ -256,13 +262,13 @@ class CapesAPI:
             offset += batch_size
             
             logger.info(f"Coletados {len(all_records)} registros...")
-            
+
             # Limite de segurança
             if len(all_records) > 500000:
                 logger.warning("Limite de 500k registros atingido")
                 break
         
-        logger.info(f"✅ Total coletado: {len(all_records)} registros")
+        logger.info(f"Total coletado: {len(all_records)} registros")
         return pd.DataFrame(all_records)
 
 # =================================================================
